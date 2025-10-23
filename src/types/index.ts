@@ -58,6 +58,7 @@ export type RemovalStatus =
   | 'coletivo_faturado'
   | 'individual_faturado';
 
+export type DeliveryStatus = 'ready_for_scheduling' | 'scheduled' | 'awaiting_pickup' | 'out_for_delivery' | 'delivered';
 
 export interface Removal {
   id: string;
@@ -151,6 +152,7 @@ export interface Removal {
     }[];
     adhesionFee: number;
   };
+  deliveryStatus?: DeliveryStatus;
 }
 
 export interface Additional {

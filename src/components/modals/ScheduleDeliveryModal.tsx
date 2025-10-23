@@ -6,6 +6,7 @@ import { useStock } from '../../context/StockContext';
 import { X, Search, UserCheck, CalendarClock, ArrowLeft, Calendar, AlertTriangle, Dog, User, Hash, MapPin, Package, Truck, Phone } from 'lucide-react';
 import { format } from 'date-fns';
 import { mockDrivers } from '../../data/mock';
+import { adicionaisDisponiveis } from '../../data/pricing';
 
 interface ScheduleDeliveryModalProps {
   isOpen: boolean;
@@ -25,7 +26,7 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
   
   const [deliveryDate, setDeliveryDate] = useState('');
   const [editableAddress, setEditableAddress] = useState<Address | null>(null);
-  const [deliveryItems, setDeliveryItems] = useState<string[]>([]);
+  const [deliveryItems, setDeliveryItems] = useState<{name: string, quantity: number}[]>([]);
   const [deliveryPersonName, setDeliveryPersonName] = useState('');
   
   // State for special pickup items
@@ -33,40 +34,12 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
   const [urnaDiferenciadaDetails, setUrnaDiferenciadaDetails] = useState('');
   const [stockSearch, setStockSearch] = useState({ term: '', field: '' });
 
-  const hasDeliveryProducts = (removal: Removal): boolean => {
-    const deliveryKeywords = ['patinha', 'carteirinha', 'relicario', 'relicário', 'pingente'];
-
-    const checkKeywords = (name: string) => {
-        const lowerName = name.toLowerCase();
-        return deliveryKeywords.some(keyword => lowerName.includes(keyword));
-    };
-
-    if (removal.additionals?.some(ad => checkKeywords(ad.type))) {
-        return true;
-    }
-
-    if (removal.customAdditionals?.some(ad => checkKeywords(ad.name))) {
-        return true;
-    }
-
-    return false;
-  };
-
   const availableRemovals = useMemo(() => {
     return removals.filter(r => {
-      const isIndividualReady = r.status === 'pronto_para_entrega';
-      const isCollectiveWithProducts =
-        r.modality === 'coletivo' &&
-        r.status === 'aguardando_baixa_master' &&
-        hasDeliveryProducts(r);
+      const isReady = r.status === 'pronto_para_entrega' || r.deliveryStatus === 'ready_for_scheduling';
+      if (!isReady) return false;
 
-      if (!isIndividualReady && !isCollectiveWithProducts) {
-        return false;
-      }
-
-      if (!searchTerm) {
-        return true;
-      }
+      if (!searchTerm) return true;
 
       const lowerCaseSearch = searchTerm.toLowerCase();
       return (
@@ -86,17 +59,6 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
     ).length;
   }, [deliveryDate, removals]);
 
-  const deliveryAndPickupItemsList = [
-    'Urna com cinzas',
-    'Certificado de Cremação',
-    'Carteirinha',
-    'Patinha em Resina',
-    'Pingente',
-    'Pingente em resina',
-    'Relicário',
-    'Urna diferenciada'
-  ];
-
   const stockSearchResults = useMemo(() => {
     if (!stockSearch.term) return [];
     const lowerTerm = stockSearch.term.toLowerCase();
@@ -107,10 +69,56 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
   }, [stock, stockSearch.term]);
 
   useEffect(() => {
-    if (confirmingDelivery || confirmingPickup) {
+    setPingenteDetails('');
+    setUrnaDiferenciadaDetails('');
+
+    const removalForItems = confirmingDelivery || confirmingPickup;
+
+    if (removalForItems) {
+        const itemsMap = new Map<string, number>();
+
+        const addItem = (name: string, quantity: number = 1) => {
+            itemsMap.set(name, (itemsMap.get(name) || 0) + quantity);
+        };
+
+        const isContagious = 
+            removalForItems.pet.causeOfDeath.toLowerCase().includes('leptospirose') ||
+            removalForItems.pet.causeOfDeath.toLowerCase().includes('esporotricose');
+
+        // 1. Add default items for individual plans
+        if (removalForItems.modality.includes('individual')) {
+            addItem('Urna com cinzas', 1);
+            addItem('Certificado de Cremação', 1);
+            if (!isContagious) {
+                addItem('Carteirinha', 1);
+            }
+        }
+
+        // 2. Add items from `additionals` array (standard add-ons from initial request)
+        removalForItems.additionals?.forEach(ad => {
+            const label = adicionaisDisponiveis.find(item => item.type === ad.type)?.label;
+            if (label) {
+                const isForbidden = isContagious && ['Patinha em Resina', 'Relicário', 'Carteirinha'].some(forbidden => label.includes(forbidden));
+                if (!isForbidden) {
+                    addItem(label, ad.quantity);
+                }
+            }
+        });
+
+        // 3. Add items from `customAdditionals` array (manually added products by finance/receptor)
+        const customItemsCount = new Map<string, number>();
+        removalForItems.customAdditionals?.forEach(ad => {
+            customItemsCount.set(ad.name, (customItemsCount.get(ad.name) || 0) + 1);
+        });
+
+        customItemsCount.forEach((quantity, name) => {
+            addItem(name, quantity);
+        });
+
+        const itemsArray = Array.from(itemsMap.entries()).map(([name, quantity]) => ({ name, quantity }));
+        setDeliveryItems(itemsArray);
+    } else {
         setDeliveryItems([]);
-        setPingenteDetails('');
-        setUrnaDiferenciadaDetails('');
     }
   }, [confirmingDelivery, confirmingPickup]);
 
@@ -125,19 +133,37 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
     onClose();
   };
 
+  const handleItemQuantityChange = (index: number, newQuantity: number) => {
+    if (isNaN(newQuantity) || newQuantity < 0) return;
+
+    setDeliveryItems(prevItems => {
+        const newItems = [...prevItems];
+        newItems[index] = { ...newItems[index], quantity: newQuantity };
+        return newItems;
+    });
+  };
+
   const handleFinalizePickup = () => {
     if (!confirmingPickup || !user) return;
 
-    const finalPickupItems = deliveryItems.map(item => {
-        if (item === 'Pingente' && pingenteDetails) return `Pingente: ${pingenteDetails}`;
-        if (item === 'Urna diferenciada' && urnaDiferenciadaDetails) return `Urna diferenciada: ${urnaDiferenciadaDetails}`;
-        return item;
+    const finalPickupItems = deliveryItems
+      .filter(item => item.quantity > 0)
+      .map(item => {
+        let itemName = item.name;
+        if (item.name === 'Pingente' && pingenteDetails) {
+            itemName = `Pingente: ${pingenteDetails}`;
+        }
+        if (item.name === 'Urna diferenciada' && urnaDiferenciadaDetails) {
+            itemName = `Urna diferenciada: ${urnaDiferenciadaDetails}`;
+        }
+        return `${item.quantity}x ${itemName}`;
     });
     
     const actionText = `marcou que o tutor virá buscar os seguintes itens: ${finalPickupItems.join(', ')}.`;
     
-    const updatedRemovalData = {
-      status: 'aguardando_retirada' as const,
+    const updatedRemovalData: Partial<Removal> = {
+      status: 'aguardando_retirada',
+      deliveryStatus: 'awaiting_pickup',
       deliveryPerson: 'Tutor (Retirada na Unidade)',
       deliveryItems: finalPickupItems,
       history: [
@@ -165,17 +191,25 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
     if (!confirmingDelivery || !deliveryDate || !user || !editableAddress) return;
     if (!deliveryPersonName) { alert('Por favor, selecione um entregador.'); return; }
 
-    const finalDeliveryItems = deliveryItems.map(item => {
-        if (item === 'Pingente' && pingenteDetails) return `Pingente: ${pingenteDetails}`;
-        if (item === 'Urna diferenciada' && urnaDiferenciadaDetails) return `Urna diferenciada: ${urnaDiferenciadaDetails}`;
-        return item;
+    const finalDeliveryItems = deliveryItems
+      .filter(item => item.quantity > 0)
+      .map(item => {
+        let itemName = item.name;
+        if (item.name === 'Pingente' && pingenteDetails) {
+            itemName = `Pingente: ${pingenteDetails}`;
+        }
+        if (item.name === 'Urna diferenciada' && urnaDiferenciadaDetails) {
+            itemName = `Urna diferenciada: ${urnaDiferenciadaDetails}`;
+        }
+        return `${item.quantity}x ${itemName}`;
     });
 
     const displayDate = format(new Date(deliveryDate + 'T00:00:00'), 'dd/MM/yyyy');
     const itemsSummary = finalDeliveryItems.length > 0 ? ` Itens na entrega: ${finalDeliveryItems.join(', ')}.` : '';
 
-    const updatedRemovalData = {
-      status: 'entrega_agendada' as const,
+    const updatedRemovalData: Partial<Removal> = {
+      status: 'entrega_agendada',
+      deliveryStatus: 'scheduled',
       scheduledDeliveryDate: deliveryDate,
       deliveryAddress: editableAddress,
       deliveryItems: finalDeliveryItems,
@@ -198,14 +232,6 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
     if (!editableAddress) return;
     const { name, value } = e.target;
     setEditableAddress({ ...editableAddress, [name]: value });
-  };
-
-  const handleItemSelection = (item: string) => {
-    setDeliveryItems(prev =>
-        prev.includes(item)
-            ? prev.filter(i => i !== item)
-            : [...prev, item]
-    );
   };
 
   const handleStockSearchSelect = (product: StockItem) => {
@@ -240,6 +266,65 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
 
   if (!isOpen) return null;
 
+  const renderItemsList = (modalType: 'delivery' | 'pickup') => (
+    <div className="space-y-2 p-3 bg-gray-100 rounded-md border max-h-60 overflow-y-auto">
+        {deliveryItems.length > 0 ? (
+            deliveryItems.map((item, index) => {
+                const isSpecial = item.name === 'Pingente' || item.name === 'Urna diferenciada';
+                return (
+                    <div key={index} className="p-2 bg-white rounded-md shadow-sm">
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-gray-800">{item.name}</span>
+                            <div className="flex items-center gap-2">
+                                <label htmlFor={`quantity-${modalType}-${index}`} className="text-xs text-gray-600">Qtd:</label>
+                                <input
+                                    id={`quantity-${modalType}-${index}`}
+                                    type="number"
+                                    value={item.quantity}
+                                    onChange={(e) => handleItemQuantityChange(index, parseInt(e.target.value, 10))}
+                                    className="w-16 px-2 py-1 border border-gray-300 rounded-md text-sm text-center"
+                                    min="0"
+                                />
+                            </div>
+                        </div>
+                        {isSpecial && (
+                            <div className="mt-2 relative">
+                                <input
+                                    type="text"
+                                    value={item.name === 'Pingente' ? pingenteDetails : urnaDiferenciadaDetails}
+                                    onChange={(e) => {
+                                        if (item.name === 'Pingente') {
+                                            setPingenteDetails(e.target.value);
+                                            setStockSearch({ term: e.target.value, field: 'pingente' });
+                                        } else {
+                                            setUrnaDiferenciadaDetails(e.target.value);
+                                            setStockSearch({ term: e.target.value, field: 'urna' });
+                                        }
+                                    }}
+                                    placeholder="Descreva ou busque por código/nome no estoque"
+                                    className="w-full text-sm border-gray-300 rounded-md shadow-sm"
+                                />
+                                {stockSearch.term && stockSearch.field === (item.name === 'Pingente' ? 'pingente' : 'urna') && stockSearchResults.length > 0 && (
+                                    <div className="absolute w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 max-h-32 overflow-y-auto">
+                                        {stockSearchResults.map(p => (
+                                            <div key={p.id} onClick={() => handleStockSearchSelect(p)} className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-xs">
+                                                <p className="font-semibold">{p.name}</p>
+                                                <p className="text-gray-500">Cód: {p.trackingCode} | Estoque: {p.quantity}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                );
+            })
+        ) : (
+            <p className="text-sm text-gray-500 text-center py-4">Nenhum item para entrega.</p>
+        )}
+    </div>
+  );
+
   // Final Confirmation View (Pickup)
   if (confirmingPickup) {
     return (
@@ -256,55 +341,8 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
                 <p className="flex items-center gap-2"><Hash size={16} /><strong>Código:</strong> {confirmingPickup.code}</p>
             </div>
             <div className="space-y-3">
-                <h3 className="font-semibold flex items-center gap-2"><Package size={16}/>Selecione os itens que o tutor irá retirar *</h3>
-                <div className="space-y-4 p-3 bg-gray-100 rounded-md border max-h-60 overflow-y-auto">
-                    {deliveryAndPickupItemsList.map(item => {
-                        const isSpecial = item === 'Pingente' || item === 'Urna diferenciada';
-                        const isSelected = deliveryItems.includes(item);
-                        return (
-                            <div key={item}>
-                                <label className="flex items-center gap-2 text-sm p-1 hover:bg-gray-200 rounded-md">
-                                    <input
-                                        type="checkbox"
-                                        checked={isSelected}
-                                        onChange={() => handleItemSelection(item)}
-                                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    {item}
-                                </label>
-                                {isSpecial && isSelected && (
-                                    <div className="pl-6 mt-2 relative">
-                                        <input
-                                            type="text"
-                                            value={item === 'Pingente' ? pingenteDetails : urnaDiferenciadaDetails}
-                                            onChange={(e) => {
-                                                if (item === 'Pingente') {
-                                                    setPingenteDetails(e.target.value);
-                                                    setStockSearch({ term: e.target.value, field: 'pingente' });
-                                                } else {
-                                                    setUrnaDiferenciadaDetails(e.target.value);
-                                                    setStockSearch({ term: e.target.value, field: 'urna' });
-                                                }
-                                            }}
-                                            placeholder="Descreva ou busque por código/nome no estoque"
-                                            className="w-full text-sm border-gray-300 rounded-md shadow-sm"
-                                        />
-                                        {stockSearch.term && stockSearch.field === (item === 'Pingente' ? 'pingente' : 'urna') && stockSearchResults.length > 0 && (
-                                            <div className="absolute w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 max-h-32 overflow-y-auto">
-                                                {stockSearchResults.map(p => (
-                                                    <div key={p.id} onClick={() => handleStockSearchSelect(p)} className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-xs">
-                                                        <p className="font-semibold">{p.name}</p>
-                                                        <p className="text-gray-500">Cód: {p.trackingCode} | Estoque: {p.quantity}</p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
+                <h3 className="font-semibold flex items-center gap-2"><Package size={16}/>Itens para Retirada</h3>
+                {renderItemsList('pickup')}
             </div>
           </div>
           <div className="bg-gray-50 p-4 border-t flex justify-end items-center gap-4">
@@ -343,54 +381,7 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
 
             <div className="space-y-3">
                 <h3 className="font-semibold flex items-center gap-2"><Package size={16}/>Itens para Entrega</h3>
-                <div className="space-y-4 p-3 bg-gray-100 rounded-md border max-h-60 overflow-y-auto">
-                    {deliveryAndPickupItemsList.map(item => {
-                        const isSpecial = item === 'Pingente' || item === 'Urna diferenciada';
-                        const isSelected = deliveryItems.includes(item);
-                        return (
-                            <div key={item}>
-                                <label className="flex items-center gap-2 text-sm p-1 hover:bg-gray-200 rounded-md">
-                                    <input
-                                        type="checkbox"
-                                        checked={isSelected}
-                                        onChange={() => handleItemSelection(item)}
-                                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    {item}
-                                </label>
-                                {isSpecial && isSelected && (
-                                    <div className="pl-6 mt-2 relative">
-                                        <input
-                                            type="text"
-                                            value={item === 'Pingente' ? pingenteDetails : urnaDiferenciadaDetails}
-                                            onChange={(e) => {
-                                                if (item === 'Pingente') {
-                                                    setPingenteDetails(e.target.value);
-                                                    setStockSearch({ term: e.target.value, field: 'pingente' });
-                                                } else {
-                                                    setUrnaDiferenciadaDetails(e.target.value);
-                                                    setStockSearch({ term: e.target.value, field: 'urna' });
-                                                }
-                                            }}
-                                            placeholder="Descreva ou busque por código/nome no estoque"
-                                            className="w-full text-sm border-gray-300 rounded-md shadow-sm"
-                                        />
-                                        {stockSearch.term && stockSearch.field === (item === 'Pingente' ? 'pingente' : 'urna') && stockSearchResults.length > 0 && (
-                                            <div className="absolute w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 max-h-32 overflow-y-auto">
-                                                {stockSearchResults.map(p => (
-                                                    <div key={p.id} onClick={() => handleStockSearchSelect(p)} className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-xs">
-                                                        <p className="font-semibold">{p.name}</p>
-                                                        <p className="text-gray-500">Cód: {p.trackingCode} | Estoque: {p.quantity}</p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
+                {renderItemsList('delivery')}
             </div>
 
             <div className="space-y-3">

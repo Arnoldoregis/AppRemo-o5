@@ -9,6 +9,7 @@ import { getRegionFromAddress, getSpeciesType, getBillingType } from '../utils/p
 import { generateContractPdf } from '../utils/generateContractPdf';
 import GenerateContractModal from '../components/modals/GenerateContractModal';
 import { generateRemovalCode, generateContractNumber } from '../utils/codeGenerator';
+import { formatCPF, formatPhone, validateCPF, validatePhone } from '../utils/validation';
 
 const EMERGENCY_FEE = 50;
 
@@ -46,6 +47,7 @@ const SolicitarRemocao: React.FC = () => {
     motivoAgendamento: ''
   });
 
+  const [errors, setErrors] = useState({ tutorCpf: '', tutorContato: '' });
   const [adicionais, setAdicionais] = useState<Additional[]>([]);
   const [valorTotal, setValorTotal] = useState(0);
   const [priceBreakdown, setPriceBreakdown] = useState({ base: 0, extras: 0, discount: 0, emergency: 0 });
@@ -180,10 +182,22 @@ const SolicitarRemocao: React.FC = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    let formattedValue = value;
+
+    if (name === 'tutorCpf') {
+        formattedValue = formatCPF(value.replace(/\D/g, '').slice(0, 11));
+    } else if (name === 'tutorContato') {
+        formattedValue = formatPhone(value.replace(/\D/g, '').slice(0, 11));
+    }
+
     if (name === 'petCausaMorte') {
         setBaseCausaMorte(value);
     } else {
-        setFormData(prev => ({ ...prev, [name]: value }));
+        setFormData(prev => ({ ...prev, [name]: formattedValue }));
+    }
+
+    if (errors[name as keyof typeof errors]) {
+        setErrors(prev => ({ ...prev, [name]: '' }));
     }
   };
 
@@ -266,8 +280,30 @@ const SolicitarRemocao: React.FC = () => {
     navigate('/');
   };
 
+  const validateForm = (): boolean => {
+    const newErrors = { tutorCpf: '', tutorContato: '' };
+    let isValid = true;
+
+    if (!validateCPF(formData.tutorCpf)) {
+        newErrors.tutorCpf = 'CPF deve ter 11 dígitos.';
+        isValid = false;
+    }
+
+    if (!validatePhone(formData.tutorContato)) {
+        newErrors.tutorContato = 'Telefone deve ter 10 ou 11 dígitos.';
+        isValid = false;
+    }
+
+    setErrors(newErrors);
+    return isValid;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateForm()) {
+        alert('Por favor, corrija os campos inválidos.');
+        return;
+    }
 
     const removalData: Partial<Removal> = {
       createdById: formData.tutorCpf,
@@ -374,7 +410,8 @@ const SolicitarRemocao: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">CPF *</label>
-                  <input type="text" name="tutorCpf" value={formData.tutorCpf} onChange={handleInputChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input type="text" name="tutorCpf" value={formData.tutorCpf} onChange={handleInputChange} required placeholder="000.000.000-00" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  {errors.tutorCpf && <p className="text-red-500 text-xs mt-1">{errors.tutorCpf}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Nome Completo *</label>
@@ -382,7 +419,8 @@ const SolicitarRemocao: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Número de Contato *</label>
-                  <input type="text" name="tutorContato" value={formData.tutorContato} onChange={handleInputChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input type="text" name="tutorContato" value={formData.tutorContato} onChange={handleInputChange} required placeholder="(XX) XXXXX-XXXX" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  {errors.tutorContato && <p className="text-red-500 text-xs mt-1">{errors.tutorContato}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>

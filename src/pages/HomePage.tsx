@@ -71,10 +71,23 @@ const HomePage: React.FC = () => {
     
     return false;
   };
+  
+  const renderRoleButton = (role: Role) => (
+    <button
+      key={role.name}
+      onClick={() => handleRoleClick(role)}
+      className={`group relative flex w-full aspect-square flex-col items-center justify-center rounded-xl border p-4 transition-all duration-300 md:h-36 md:w-36 md:aspect-auto ${colorClasses[role.color]}`}
+    >
+      <role.icon className={`h-8 w-8 transition-colors ${iconColorClasses[role.color]}`} />
+      <span className="mt-3 text-center text-xs font-semibold transition-colors">
+        {role.name}
+      </span>
+    </button>
+  );
 
   return (
-    <div className="min-h-screen bg-white text-gray-800 p-8 font-sans flex items-center justify-center">
-      <main className="w-full max-w-5xl mx-auto text-center">
+    <div className="flex min-h-screen items-center justify-center bg-white p-8 font-sans text-gray-800">
+      <main className="mx-auto w-full max-w-5xl text-center">
         <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">
           REMOÇÃO PET
         </h1>
@@ -82,19 +95,21 @@ const HomePage: React.FC = () => {
           SISTEMA DE GERENCIAMENTO DE REMOÇÃO
         </p>
 
-        <div className="mt-12 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-5">
-          {roles.map((role) => (
-            <button
-              key={role.name}
-              onClick={() => handleRoleClick(role)}
-              className={`group relative flex flex-col items-center justify-center p-4 rounded-xl border transition-all duration-300 aspect-square ${colorClasses[role.color]}`}
-            >
-              <role.icon className={`h-8 w-8 transition-colors ${iconColorClasses[role.color]}`} />
-              <span className="mt-3 font-semibold text-xs text-center transition-colors">
-                {role.name}
-              </span>
-            </button>
-          ))}
+        <div className="mt-12">
+            {/* Mobile/Tablet layout */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:hidden gap-5">
+                {roles.map(renderRoleButton)}
+            </div>
+
+            {/* Desktop layout */}
+            <div className="hidden md:flex flex-col items-center space-y-5">
+                <div className="grid grid-cols-5 gap-5">
+                    {roles.slice(0, 5).map(renderRoleButton)}
+                </div>
+                <div className="grid grid-cols-4 gap-5">
+                    {roles.slice(5).map(renderRoleButton)}
+                </div>
+            </div>
         </div>
       </main>
 

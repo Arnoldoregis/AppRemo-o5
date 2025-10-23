@@ -12,6 +12,9 @@ import { exportToExcel } from '../utils/exportToExcel';
 import ScheduleDeliveryModal from '../components/modals/ScheduleDeliveryModal';
 import ScheduledDeliveryList from '../components/shared/ScheduledDeliveryList';
 import AwaitingPickupList from '../components/shared/AwaitingPickupList';
+import MonthlyBatchCard from '../components/cards/MonthlyBatchCard';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 interface FinanceiroJuniorHomeProps {
   isReadOnly?: boolean;
@@ -92,19 +95,32 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     }
   };
 
-  const handleMarkAsDelivered = (removalId: string, deliveryPerson: string) => {
+  const handleMarkAsDelivered = (removalId: string, data: { deliveryPerson: string; receivedBy: string; deliveryDate: string; }) => {
     if (!user || isReadOnly) return;
     const removalToUpdate = removals.find(r => r.id === removalId);
     if (!removalToUpdate) return;
+    
+    const isCollectiveWithProducts = removalToUpdate.modality === 'coletivo' &&
+        ((removalToUpdate.customAdditionals && removalToUpdate.customAdditionals.length > 0) ||
+         (removalToUpdate.additionals && removalToUpdate.additionals.length > 0));
+
+    const nextStatus = isCollectiveWithProducts ? 'aguardando_baixa_master' : 'finalizada';
+
+    const formattedDate = format(new Date(data.deliveryDate + 'T00:00:00'), 'dd/MM/yyyy');
+
+    const historyAction = isCollectiveWithProducts
+        ? `Entrega finalizada em ${formattedDate} por ${user.name.split(' ')[0]} e encaminhada para baixa do Master. Entregue por: ${data.deliveryPerson}. Recebido por: ${data.receivedBy}.`
+        : `Entrega finalizada em ${formattedDate} por ${user.name.split(' ')[0]}. Entregue por: ${data.deliveryPerson}. Recebido por: ${data.receivedBy}.`;
 
     updateRemoval(removalToUpdate.id, {
-        status: 'finalizada',
-        deliveryPerson: deliveryPerson,
+        status: nextStatus,
+        deliveryPerson: data.deliveryPerson,
+        deliveryStatus: 'delivered',
         history: [
             ...removalToUpdate.history,
             {
-                date: new Date().toISOString(),
-                action: `Entrega finalizada por ${user.name.split(' ')[0]}. Entregue por: ${deliveryPerson}.`,
+                date: new Date(data.deliveryDate).toISOString(),
+                action: historyAction,
                 user: user.name,
             },
         ],
@@ -141,22 +157,19 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
             baseFiltered = Object.values(schedule).filter(filterByRole);
             break;
         case 'pronto_para_entrega':
-            baseFiltered = removals.filter(r => r.status === 'pronto_para_entrega' && filterByRole(r));
+            baseFiltered = removals.filter(r => (r.status === 'pronto_para_entrega' || r.deliveryStatus === 'ready_for_scheduling') && filterByRole(r));
             break;
         case 'agenda_entrega':
             if (deliveryFilter === 'entregue_retirado') {
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
                 baseFiltered = removals.filter(r => {
-                    if (r.status !== 'finalizada' || !filterByRole(r)) return false;
+                    if (r.status !== 'finalizada' && r.status !== 'aguardando_baixa_master') return false;
+                    if (!filterByRole(r)) return false;
+
                     const finalizationEntry = [...r.history].reverse().find(h => 
                         h.action.includes('Entrega finalizada por') || 
-                        h.action.includes('confirmou a retirada das cinzas')
+                        h.action.includes('confirmou a retirada')
                     );
-                    if (!finalizationEntry) return false;
-                    const finalizationDate = new Date(finalizationEntry.date);
-                    return finalizationDate >= thirtyDaysAgo;
+                    return !!finalizationEntry;
                 });
             } else if (deliveryFilter === 'todos') {
                 baseFiltered = removals.filter(r => (r.status === 'aguardando_retirada' || r.status === 'entrega_agendada') && filterByRole(r));
@@ -191,6 +204,42 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     return baseFiltered;
   }, [activeTab, removals, searchTerm, schedule, paymentFilter, user, deliveryFilter, viewedRole, isReadOnly]);
 
+  const deliveredOrPickedUpGroupedByMonth = useMemo(() => {
+    if (activeTab !== 'agenda_entrega' || deliveryFilter !== 'entregue_retirado') {
+        return null;
+    }
+
+    const getFinalizationDate = (removal: Removal): Date | null => {
+        const finalizationEntry = [...removal.history].reverse().find(h => 
+            h.action.includes('Entrega finalizada por') || 
+            h.action.includes('confirmou a retirada')
+        );
+        return finalizationEntry ? new Date(finalizationEntry.date) : null;
+    };
+
+    const grouped = filteredRemovals.reduce((acc, removal) => {
+        const finalizationDate = getFinalizationDate(removal);
+        if (!finalizationDate) return acc;
+
+        const monthYear = format(finalizationDate, 'MMMM yyyy', { locale: ptBR });
+        const capitalizedMonthYear = monthYear.charAt(0).toUpperCase() + monthYear.slice(1);
+        
+        if (!acc[capitalizedMonthYear]) {
+            acc[capitalizedMonthYear] = [];
+        }
+        acc[capitalizedMonthYear].push(removal);
+        return acc;
+    }, {} as { [key: string]: Removal[] });
+
+    return Object.entries(grouped).sort(([monthA], [monthB]) => {
+        const dateA = getFinalizationDate(grouped[monthA][0]);
+        const dateB = getFinalizationDate(grouped[monthB][0]);
+        if (!dateA || !dateB) return 0;
+        return dateB.getTime() - dateA.getTime();
+    });
+
+  }, [activeTab, deliveryFilter, filteredRemovals]);
+
   const handleDownload = () => {
     exportToExcel(filteredRemovals, `historico_fin_junior_${activeTab}`);
   };
@@ -223,7 +272,21 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
       case 'aguardando_retirada':
         return <AwaitingPickupList removals={filteredRemovals} onSelectRemoval={setSelectedRemoval} title="Aguardando Retirada" />;
       case 'entregue_retirado':
-        return <AwaitingPickupList removals={filteredRemovals} onSelectRemoval={setSelectedRemoval} title="Entregues/Retirados (Últimos 30 dias)" isFinalizedList />;
+        if (!deliveredOrPickedUpGroupedByMonth || deliveredOrPickedUpGroupedByMonth.length === 0) {
+            return <p className="text-center text-gray-500 py-12">Nenhuma entrega ou retirada concluída encontrada.</p>;
+        }
+        return (
+            <div className="space-y-6">
+                {deliveredOrPickedUpGroupedByMonth.map(([month, monthRemovals]) => (
+                    <MonthlyBatchCard
+                        key={month}
+                        month={month}
+                        removals={monthRemovals}
+                        onSelectRemoval={setSelectedRemoval}
+                    />
+                ))}
+            </div>
+        );
       case 'todos':
         return (
           <div className="space-y-8">

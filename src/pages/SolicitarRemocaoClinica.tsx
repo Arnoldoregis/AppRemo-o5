@@ -9,6 +9,7 @@ import { getRegionFromAddress, getSpeciesType, getBillingType } from '../utils/p
 import { generateContractPdf } from '../utils/generateContractPdf';
 import GenerateContractModal from '../components/modals/GenerateContractModal';
 import { generateRemovalCode, generateContractNumber } from '../utils/codeGenerator';
+import { formatCPF, formatCNPJ, formatPhone, validateCNPJ, validatePhone } from '../utils/validation';
 
 const EMERGENCY_FEE = 50;
 
@@ -47,6 +48,7 @@ const SolicitarRemocaoClinica: React.FC = () => {
     motivoAgendamento: ''
   });
   
+  const [errors, setErrors] = useState({ clinicCnpj: '', clinicPhone: '', tutorCpfCnpj: '' });
   const [adicionais, setAdicionais] = useState<Additional[]>([]);
   const [valorTotal, setValorTotal] = useState(0);
   const [priceBreakdown, setPriceBreakdown] = useState({ base: 0, extras: 0, discount: 0, emergency: 0 });
@@ -179,10 +181,28 @@ const SolicitarRemocaoClinica: React.FC = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    let formattedValue = value;
+
+    if (name === 'clinicCnpj' || name === 'tutorCpfCnpj') {
+        const cleaned = value.replace(/\D/g, '');
+        if (cleaned.length <= 11) {
+            formattedValue = formatCPF(cleaned);
+        } else {
+            formattedValue = formatCNPJ(cleaned.slice(0, 14));
+        }
+    } else if (name === 'clinicPhone') {
+        const cleaned = value.replace(/\D/g, '');
+        formattedValue = formatPhone(cleaned.slice(0, 11));
+    }
+
     if (name === 'petCausaMorte') {
         setBaseCausaMorte(value);
     } else {
-        setFormData(prev => ({ ...prev, [name]: value }));
+        setFormData(prev => ({ ...prev, [name]: formattedValue }));
+    }
+
+    if (errors[name as keyof typeof errors]) {
+        setErrors(prev => ({ ...prev, [name]: '' }));
     }
   };
 
@@ -216,7 +236,6 @@ const SolicitarRemocaoClinica: React.FC = () => {
     }
     const adicionalInfo = adicionaisDisponiveis.find(a => a.type === type);
     if (!adicionalInfo) return;
-
     setAdicionais(prev => {
       const existing = prev.find(a => a.type === type);
       if (quantity <= 0) return prev.filter(a => a.type !== type);
@@ -247,8 +266,36 @@ const SolicitarRemocaoClinica: React.FC = () => {
     navigate('/');
   };
 
+  const validateForm = (): boolean => {
+    const newErrors = { clinicCnpj: '', clinicPhone: '', tutorCpfCnpj: '' };
+    let isValid = true;
+
+    if (!validateCNPJ(formData.clinicCnpj)) {
+        newErrors.clinicCnpj = 'CNPJ da clínica deve ter 14 dígitos.';
+        isValid = false;
+    }
+
+    if (!validatePhone(formData.clinicPhone)) {
+        newErrors.clinicPhone = 'Telefone da clínica deve ter 10 ou 11 dígitos.';
+        isValid = false;
+    }
+
+    const tutorCpfCnpjCleaned = formData.tutorCpfCnpj.replace(/\D/g, '');
+    if (tutorCpfCnpjCleaned.length > 0 && tutorCpfCnpjCleaned.length !== 11 && tutorCpfCnpjCleaned.length !== 14) {
+        newErrors.tutorCpfCnpj = 'CPF (11 dígitos) ou CNPJ (14 dígitos) do tutor inválido.';
+        isValid = false;
+    }
+    
+    setErrors(newErrors);
+    return isValid;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateForm()) {
+        alert('Por favor, corrija os campos inválidos.');
+        return;
+    }
     
     const removalData: Partial<Removal> = {
       createdById: formData.clinicCnpj,
@@ -307,9 +354,17 @@ const SolicitarRemocaoClinica: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center"><Building2 className="h-5 w-5 mr-2 text-green-600" />Informações da Clínica *</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <input type="text" name="clinicName" value={formData.clinicName} onChange={handleInputChange} placeholder="Nome Fantasia da Clínica" required className="w-full px-3 py-2 border rounded-md" />
-                <input type="text" name="clinicCnpj" value={formData.clinicCnpj} onChange={handleInputChange} placeholder="CNPJ da Clínica" required className="w-full px-3 py-2 border rounded-md" />
-                <input type="text" name="clinicPhone" value={formData.clinicPhone} onChange={handleInputChange} placeholder="Contato da Clínica" required className="w-full px-3 py-2 border rounded-md md:col-span-2" />
+                <div>
+                    <input type="text" name="clinicName" value={formData.clinicName} onChange={handleInputChange} placeholder="Nome Fantasia da Clínica" required className="w-full px-3 py-2 border rounded-md" />
+                </div>
+                <div>
+                    <input type="text" name="clinicCnpj" value={formData.clinicCnpj} onChange={handleInputChange} placeholder="00.000.000/0000-00" required className="w-full px-3 py-2 border rounded-md" />
+                    {errors.clinicCnpj && <p className="text-red-500 text-xs mt-1">{errors.clinicCnpj}</p>}
+                </div>
+                <div className="md:col-span-2">
+                    <input type="text" name="clinicPhone" value={formData.clinicPhone} onChange={handleInputChange} placeholder="(XX) XXXXX-XXXX" required className="w-full px-3 py-2 border rounded-md" />
+                    {errors.clinicPhone && <p className="text-red-500 text-xs mt-1">{errors.clinicPhone}</p>}
+                </div>
               </div>
             </div>
             
@@ -357,10 +412,13 @@ const SolicitarRemocaoClinica: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Dados do Tutor *</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <input name="tutorCpfCnpj" value={formData.tutorCpfCnpj} onChange={handleInputChange} placeholder="CPF ou CNPJ" required className="w-full px-3 py-2 border rounded-md" />
+                <div>
+                    <input name="tutorCpfCnpj" value={formData.tutorCpfCnpj} onChange={handleInputChange} placeholder="CPF ou CNPJ do tutor (somente números)" required className="w-full px-3 py-2 border rounded-md" />
+                    {errors.tutorCpfCnpj && <p className="text-red-500 text-xs mt-1">{errors.tutorCpfCnpj}</p>}
+                </div>
                 <input name="tutorNome" value={formData.tutorNome} onChange={handleInputChange} placeholder="Nome do Tutor" required className="w-full px-3 py-2 border rounded-md" />
-                <input name="tutorContato" value={formData.tutorContato} onChange={handleInputChange} placeholder="Número de Contato" required className="w-full px-3 py-2 border rounded-md" />
-                <input type="email" name="tutorEmail" value={formData.tutorEmail} onChange={handleInputChange} placeholder="Email" className="w-full px-3 py-2 border rounded-md" />
+                <input name="tutorContato" value={formData.tutorContato} onChange={handleInputChange} placeholder="Número de Contato do Tutor" required className="w-full px-3 py-2 border rounded-md" />
+                <input type="email" name="tutorEmail" value={formData.tutorEmail} onChange={handleInputChange} placeholder="Email do Tutor" className="w-full px-3 py-2 border rounded-md" />
               </div>
             </div>
 

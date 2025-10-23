@@ -9,7 +9,7 @@ import { generateDeliveryReportPdf } from '../../utils/generateDeliveryReportPdf
 interface ScheduledDeliveryListProps {
     removals: Removal[];
     onCancelDelivery: (removalCode: string) => void;
-    onMarkAsDelivered: (removalId: string, deliveryPerson: string) => void;
+    onMarkAsDelivered: (removalId: string, data: { deliveryPerson: string; receivedBy: string; deliveryDate: string; }) => void;
     onReturnToSchedule: (removalId: string) => void;
 }
 
@@ -108,9 +108,9 @@ const ScheduledDeliveryList: React.FC<ScheduledDeliveryListProps> = ({ removals,
             <ConfirmDeliveryModal
                 isOpen={!!confirmingDelivery}
                 onClose={() => setConfirmingDelivery(null)}
-                onConfirm={(deliveryPerson) => {
+                onConfirm={(data) => {
                     if (confirmingDelivery) {
-                        onMarkAsDelivered(confirmingDelivery.id, deliveryPerson);
+                        onMarkAsDelivered(confirmingDelivery.id, data);
                     }
                 }}
                 removal={confirmingDelivery}

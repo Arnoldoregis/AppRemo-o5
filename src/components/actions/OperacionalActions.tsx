@@ -98,20 +98,21 @@ const OperacionalActions: React.FC<OperacionalActionsProps> = ({ removal, onClos
     
     const handleForwardToScheduling = () => {
         if (!user) return;
-
+    
         const juniorToAssign = removal.assignedFinanceiroJunior || {
             id: mockFinanceiroJuniors[0].id,
             name: mockFinanceiroJuniors[0].name,
         };
-
+    
         updateRemoval(removal.id, {
-            status: 'pronto_para_entrega',
+            status: 'aguardando_baixa_master',
+            deliveryStatus: 'ready_for_scheduling',
             assignedFinanceiroJunior: juniorToAssign,
             history: [
                 ...removal.history,
                 {
                     date: new Date().toISOString(),
-                    action: `Lembrancinha pronta. Encaminhado por ${user.name.split(' ')[0]} para ${juniorToAssign.name} para agendamento.`,
+                    action: `Lembrancinha pronta. Encaminhado por ${user.name.split(' ')[0]} para entrega (Fin. Jr.) e para baixa (Fin. Master).`,
                     user: user.name,
                 },
             ],
@@ -237,7 +238,7 @@ const OperacionalActions: React.FC<OperacionalActionsProps> = ({ removal, onClos
                 onClick={handleForwardToScheduling}
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2"
             >
-                <Send size={16} /> Encaminhar p/ Agendamento
+                <Send size={16} /> Encaminhar p/ Agendamento e Baixa
             </button>
         );
     }

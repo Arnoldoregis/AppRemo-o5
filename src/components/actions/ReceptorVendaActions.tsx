@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Removal, CustomAdditional } from '../../types';
 import { useRemovals } from '../../context/RemovalContext';
 import { useAuth } from '../../context/AuthContext';
@@ -45,6 +45,13 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
   const [isConfirmingMaster, setIsConfirmingMaster] = useState(false);
 
   const isCollective = removal.modality === 'coletivo';
+
+  const hasProducts = useMemo(() => {
+    const hasInitialAdditionals = removal.additionals && removal.additionals.length > 0;
+    const hasCustomAdditionals = removal.customAdditionals && removal.customAdditionals.length > 0;
+    return hasInitialAdditionals || hasCustomAdditionals;
+  }, [removal.additionals, removal.customAdditionals]);
+
 
   useEffect(() => {
     if (isEditing) {
@@ -314,12 +321,15 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
       <button onClick={() => setIsEditing(true)} className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 flex items-center gap-2">
         <Edit size={16} /> Adicionar/Editar
       </button>
-      <button onClick={handleAttemptFinalizeForMaster} className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center gap-2">
-        <Crown size={16} /> Finalizar p/ Master
-      </button>
-      <button onClick={() => setIsConfirmingOperational(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2">
-        <HardHat size={16} /> Encaminhar p/ Operacional
-      </button>
+      {hasProducts ? (
+        <button onClick={() => setIsConfirmingOperational(true)} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2">
+          <HardHat size={16} /> Encaminhar p/ Operacional
+        </button>
+      ) : (
+        <button onClick={handleAttemptFinalizeForMaster} className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center gap-2">
+          <Crown size={16} /> Finalizar p/ Master
+        </button>
+      )}
     </div>
   );
 };

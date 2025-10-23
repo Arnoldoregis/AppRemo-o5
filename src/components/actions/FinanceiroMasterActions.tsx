@@ -26,6 +26,7 @@ const FinanceiroMasterActions: React.FC<FinanceiroMasterActionsProps> = ({ remov
     if (!user) return;
     updateRemoval(removal.id, {
       status: 'finalizada',
+      deliveryStatus: removal.deliveryStatus ? 'delivered' : undefined, // Mark delivery as complete if it was in progress
       history: [
         ...removal.history,
         {
