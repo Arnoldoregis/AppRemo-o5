@@ -153,6 +153,7 @@ export interface Removal {
     adhesionFee: number;
   };
   deliveryStatus?: DeliveryStatus;
+  petPhotoUrl?: string;
 }
 
 export interface Additional {

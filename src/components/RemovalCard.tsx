@@ -3,12 +3,7 @@ import { Removal, RemovalStatus } from '../types';
 import { format } from 'date-fns';
 import { List, Clock, CheckCircle, FileWarning, FileCheck, XCircle, Files, Eye, Send, Flame, PackageCheck, UserCheck, CalendarClock, AlertTriangle, ShoppingBag, HardHat, Truck, ClipboardCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-
-interface RemovalCardProps {
-  removal: Removal;
-  onClick: () => void;
-  orderNumber?: number;
-}
+import CountdownTimer from './shared/CountdownTimer';
 
 // Config for status badge
 const statusConfig: { [key in RemovalStatus]?: { color: string; icon: React.ElementType; label: string } } = {
@@ -43,6 +38,12 @@ const modalityConfig: { [key: string]: { style: string; label: string } } = {
   '': { style: 'bg-gray-200 text-gray-800', label: 'Não Definida' }
 };
 
+interface RemovalCardProps {
+  removal: Removal;
+  onClick: () => void;
+  orderNumber?: number;
+}
+
 const RemovalCard: React.FC<RemovalCardProps> = ({ removal, onClick, orderNumber }) => {
   const { user } = useAuth();
 
@@ -58,6 +59,9 @@ const RemovalCard: React.FC<RemovalCardProps> = ({ removal, onClick, orderNumber
     "bg-white rounded-lg shadow-md p-4 transition-all hover:shadow-lg cursor-pointer border-l-8 relative",
     removal.isPriority ? "border-red-500" : "border-transparent"
   ].join(" ");
+
+  const isScheduled = removal.status === 'agendada' && removal.scheduledDate && removal.scheduledTime;
+  const targetDate = isScheduled ? `${removal.scheduledDate}T${removal.scheduledTime}:00` : '';
 
   return (
     <div 
@@ -98,7 +102,13 @@ const RemovalCard: React.FC<RemovalCardProps> = ({ removal, onClick, orderNumber
         </div>
         <p className="text-gray-800 pt-1"><strong>Valor:</strong> R$ {removal.value.toFixed(2)}</p>
         <p className="text-gray-700"><strong>Data:</strong> {format(new Date(removal.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+        {isScheduled && (
+            <p className="text-gray-700"><strong>Agendado para:</strong> {format(new Date(targetDate), 'dd/MM/yyyy HH:mm')}</p>
+        )}
       </div>
+
+      {isScheduled && <CountdownTimer targetDate={targetDate} />}
+
       <div className="mt-3 flex justify-end">
         <button className="text-sm text-blue-600 hover:text-blue-800 flex items-center">
             <Eye className="h-4 w-4 mr-1" />

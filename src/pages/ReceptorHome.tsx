@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useRemovals } from '../context/RemovalContext';
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
-import { CalendarDays, Download, Search, Plus, Filter, UserCheck, CalendarClock, CheckCircle, Map as MapIcon, List as ListIcon, ShoppingBag, Truck } from 'lucide-react';
+import { Calendar, CalendarDays, Download, Search, Plus, Filter, UserCheck, CalendarClock, CheckCircle, Map as MapIcon, List as ListIcon, ShoppingBag, Truck } from 'lucide-react';
 import { Removal, RemovalStatus } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
@@ -14,6 +14,7 @@ import ScheduledDeliveryList from '../components/shared/ScheduledDeliveryList';
 import { mockDrivers } from '../data/mock';
 import MapComponent from '../components/shared/MapComponent';
 import AwaitingPickupList from '../components/shared/AwaitingPickupList';
+import { format } from 'date-fns';
 
 interface ReceptorHomeProps {
   isReadOnly?: boolean;
@@ -49,6 +50,10 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
     setActiveSubTab('list');
     setSelectedDriverId('todos');
   }, [activeTab]);
+
+  const scheduledRemovalsCount = useMemo(() => {
+    return removals.filter(r => r.status === 'agendada').length;
+  }, [removals]);
 
   const handleReturnToSchedule = (removalId: string) => {
     if (!user || isReadOnly) return;
@@ -94,19 +99,32 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
     }
   };
 
-  const handleMarkAsDelivered = (removalId: string, deliveryPerson: string) => {
+  const handleMarkAsDelivered = (removalId: string, data: { deliveryPerson: string; receivedBy: string; deliveryDate: string; }) => {
     if (!user || isReadOnly) return;
     const removalToUpdate = removals.find(r => r.id === removalId);
     if (!removalToUpdate) return;
+    
+    const isCollectiveWithProducts = removalToUpdate.modality === 'coletivo' &&
+        ((removalToUpdate.customAdditionals && removalToUpdate.customAdditionals.length > 0) ||
+         (removalToUpdate.additionals && removalToUpdate.additionals.length > 0));
+
+    const nextStatus = isCollectiveWithProducts ? 'aguardando_baixa_master' : 'finalizada';
+
+    const formattedDate = format(new Date(data.deliveryDate + 'T00:00:00'), 'dd/MM/yyyy');
+
+    const historyAction = isCollectiveWithProducts
+        ? `Entrega finalizada em ${formattedDate} por ${user.name.split(' ')[0]} e encaminhada para baixa do Master. Entregue por: ${data.deliveryPerson}. Recebido por: ${data.receivedBy}.`
+        : `Entrega finalizada em ${formattedDate} por ${user.name.split(' ')[0]}. Entregue por: ${data.deliveryPerson}. Recebido por: ${data.receivedBy}.`;
 
     updateRemoval(removalToUpdate.id, {
-        status: 'finalizada',
-        deliveryPerson: deliveryPerson,
+        status: nextStatus,
+        deliveryPerson: data.deliveryPerson,
+        deliveryStatus: 'delivered',
         history: [
             ...removalToUpdate.history,
             {
-                date: new Date().toISOString(),
-                action: `Entrega finalizada por ${user.name.split(' ')[0]}. Entregue por: ${deliveryPerson}.`,
+                date: new Date(data.deliveryDate).toISOString(),
+                action: historyAction,
                 user: user.name,
             },
         ],
@@ -135,10 +153,10 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
             thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
             tabFiltered = removals.filter(r => {
-                if (r.status !== 'finalizada') return false;
+                if (r.status !== 'finalizada' && r.status !== 'aguardando_baixa_master') return false;
                 const finalizationEntry = [...r.history].reverse().find(h => 
                     h.action.includes('Entrega finalizada por') || 
-                    h.action.includes('confirmou a retirada das cinzas')
+                    h.action.includes('confirmou a retirada')
                 );
                 if (!finalizationEntry) return false;
                 const finalizationDate = new Date(finalizationEntry.date);
@@ -161,7 +179,9 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
             r.status === 'aguardando_venda_receptor'
         );
     } else {
-      tabFiltered = removals.filter(r => r.status === activeTab);
+      tabFiltered = removals
+        .filter(r => r.status === activeTab)
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     }
     
     if (searchTerm) {
@@ -183,6 +203,7 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
 
   const tabs: { id: RemovalStatus | 'agenda_entrega' | 'coletivo_liberado_venda'; label: string; icon?: React.ElementType }[] = [
     { id: 'solicitada', label: 'Remoções Recebidas' },
+    { id: 'agendada', label: 'Remoção Agendada', icon: Calendar },
     { id: 'em_andamento', label: 'Remoções Direcionadas' },
     { id: 'a_caminho', label: 'Em Andamento' },
     { id: 'concluida', label: 'Remoções Concluídas' },
@@ -261,12 +282,29 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
       <div className="bg-white rounded-lg shadow-md">
         <div className="border-b">
           <nav className="flex flex-wrap -mb-px">
-            {tabs.map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === tab.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                {tab.icon && <tab.icon size={16} />}
-                {tab.label}
-              </button>
-            ))}
+            {tabs.map(tab => {
+              const isScheduledTab = tab.id === 'agendada';
+              const hasScheduledItems = scheduledRemovalsCount > 0;
+              let tabClasses = `px-4 py-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 `;
+              
+              if (activeTab === tab.id) {
+                tabClasses += isScheduledTab && hasScheduledItems ? 'border-red-500 text-red-600' : 'border-blue-500 text-blue-600';
+              } else {
+                tabClasses += isScheduledTab && hasScheduledItems ? 'border-transparent text-red-500 hover:text-red-700 animate-pulse' : 'border-transparent text-gray-500 hover:text-gray-700';
+              }
+
+              return (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={tabClasses}>
+                  {tab.icon && <tab.icon size={16} />}
+                  {tab.label}
+                  {isScheduledTab && hasScheduledItems && (
+                    <span className="ml-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                      {scheduledRemovalsCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </nav>
         </div>
         <div className="p-6">

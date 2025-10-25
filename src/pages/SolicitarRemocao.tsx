@@ -10,6 +10,7 @@ import { generateContractPdf } from '../utils/generateContractPdf';
 import GenerateContractModal from '../components/modals/GenerateContractModal';
 import { generateRemovalCode, generateContractNumber } from '../utils/codeGenerator';
 import { formatCPF, formatPhone, validateCPF, validatePhone } from '../utils/validation';
+import { format } from 'date-fns';
 
 const EMERGENCY_FEE = 50;
 
@@ -305,6 +306,12 @@ const SolicitarRemocao: React.FC = () => {
         return;
     }
 
+    let historyAction = 'Solicitação criada';
+    if (formData.tipoSolicitacao === 'agendar' && formData.dataAgendamento && formData.horarioAgendamento) {
+        const formattedDate = format(new Date(formData.dataAgendamento + 'T00:00:00'), 'dd/MM/yyyy');
+        historyAction = `Solicitação com agendamento por tutor para o dia ${formattedDate} às ${formData.horarioAgendamento}`;
+    }
+
     const removalData: Partial<Removal> = {
       createdById: formData.tutorCpf,
       modality: formData.modalidade,
@@ -320,7 +327,7 @@ const SolicitarRemocao: React.FC = () => {
       scheduledTime: formData.horarioAgendamento,
       schedulingReason: formData.motivoAgendamento,
       status: formData.tipoSolicitacao === 'agendar' ? 'agendada' : 'solicitada',
-      history: [{ date: new Date().toISOString(), action: 'Solicitação criada', user: formData.tutorNome }],
+      history: [{ date: new Date().toISOString(), action: historyAction, user: formData.tutorNome }],
       contractNumber: formData.contratoNumero,
       paymentProof: paymentProofFile ? paymentProofFile.name : undefined,
       emergencyFee: isEmergencyHours ? EMERGENCY_FEE : undefined,

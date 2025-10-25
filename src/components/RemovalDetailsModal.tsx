@@ -309,6 +309,22 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
                 <DetailItem label="Peso (solicitado)" value={removal.pet.weight} />
                 <DetailItem label="Peso (real)" value={removal.realWeight ? `${removal.realWeight} kg` : 'N/A'} />
                 <DetailItem label="Causa da Morte" value={removal.pet.causeOfDeath} />
+                {removal.petPhotoUrl && (
+                  <div className="mt-4">
+                      <button
+                          onClick={() => {
+                              const parts = removal.petPhotoUrl!.split('||');
+                              const url = parts[0];
+                              const name = parts.length > 1 ? parts[1] : 'foto_pet.jpg';
+                              downloadFile(url, name);
+                          }}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 text-blue-700 text-sm font-semibold rounded-md hover:bg-blue-200 transition-colors"
+                      >
+                          <Download size={14} />
+                          Baixar Foto do Pet
+                      </button>
+                  </div>
+                )}
               </>
             ) : (
               <p className="text-sm text-gray-500">Detalhes dos pets estão listados na seção "Detalhes do Plano Preventivo".</p>

@@ -12,6 +12,7 @@ import { generateContractPdf } from '../utils/generateContractPdf';
 import GenerateContractModal from '../components/modals/GenerateContractModal';
 import { generateRemovalCode, generateContractNumber } from '../utils/codeGenerator';
 import { formatCPF, formatCNPJ, formatPhone, validateCPF, validateCNPJ, validatePhone } from '../utils/validation';
+import { format } from 'date-fns';
 
 const EMERGENCY_FEE = 50;
 
@@ -325,6 +326,13 @@ const ReceptorSolicitarRemocaoPage: React.FC = () => {
             return;
         }
         if (!user) return;
+
+        let historyAction = `Solicitação para ${isForClinica ? `clínica ${formData.clinicName}` : 'pessoa física'} criada pelo Receptor ${user.name}`;
+        if (formData.tipoSolicitacao === 'agendar' && formData.dataAgendamento && formData.horarioAgendamento) {
+            const formattedDate = format(new Date(formData.dataAgendamento + 'T00:00:00'), 'dd/MM/yyyy');
+            const requester = isForClinica ? `clínica ${formData.clinicName}` : `tutor ${formData.tutorNome}`;
+            historyAction = `Solicitação com agendamento por ${requester} para o dia ${formattedDate} às ${formData.horarioAgendamento}`;
+        }
         
         const removalData: Partial<Removal> = {
             createdById: user.id,
@@ -349,7 +357,7 @@ const ReceptorSolicitarRemocaoPage: React.FC = () => {
             scheduledTime: formData.horarioAgendamento,
             schedulingReason: formData.motivoAgendamento,
             status: formData.tipoSolicitacao === 'agendar' ? 'agendada' : 'solicitada',
-            history: [{ date: new Date().toISOString(), action: `Solicitação para ${isForClinica ? `clínica ${formData.clinicName}` : 'pessoa física'} criada pelo Receptor ${user.name}`, user: user.name }],
+            history: [{ date: new Date().toISOString(), action: historyAction, user: user.name }],
             contractNumber: formData.contratoNumero,
             paymentProof: paymentProofFile ? paymentProofFile.name : undefined,
             emergencyFee: isEmergencyHours ? EMERGENCY_FEE : undefined,

@@ -10,6 +10,7 @@ import { generateContractPdf } from '../utils/generateContractPdf';
 import GenerateContractModal from '../components/modals/GenerateContractModal';
 import { generateRemovalCode, generateContractNumber } from '../utils/codeGenerator';
 import { formatCPF, formatCNPJ, formatPhone, validateCNPJ, validatePhone } from '../utils/validation';
+import { format } from 'date-fns';
 
 const EMERGENCY_FEE = 50;
 
@@ -297,6 +298,12 @@ const SolicitarRemocaoClinica: React.FC = () => {
         return;
     }
     
+    let historyAction = `Solicitação criada pela clínica ${formData.clinicName}`;
+    if (formData.tipoSolicitacao === 'agendar' && formData.dataAgendamento && formData.horarioAgendamento) {
+        const formattedDate = format(new Date(formData.dataAgendamento + 'T00:00:00'), 'dd/MM/yyyy');
+        historyAction = `Solicitação com agendamento pela clínica ${formData.clinicName} para o dia ${formattedDate} às ${formData.horarioAgendamento}`;
+    }
+
     const removalData: Partial<Removal> = {
       createdById: formData.clinicCnpj,
       clinicName: formData.clinicName,
@@ -315,7 +322,7 @@ const SolicitarRemocaoClinica: React.FC = () => {
       scheduledTime: formData.horarioAgendamento,
       schedulingReason: formData.motivoAgendamento,
       status: formData.tipoSolicitacao === 'agendar' ? 'agendada' : 'solicitada',
-      history: [{ date: new Date().toISOString(), action: `Solicitação criada pela clínica ${formData.clinicName}`, user: formData.clinicName }],
+      history: [{ date: new Date().toISOString(), action: historyAction, user: formData.clinicName }],
       contractNumber: formData.contratoNumero,
       paymentProof: paymentProofFile ? paymentProofFile.name : undefined,
       emergencyFee: isEmergencyHours ? EMERGENCY_FEE : undefined,

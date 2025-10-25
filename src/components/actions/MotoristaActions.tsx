@@ -4,6 +4,7 @@ import { useRemovals } from '../../context/RemovalContext';
 import { useAuth } from '../../context/AuthContext';
 import { Truck, Check, Scale } from 'lucide-react';
 import NextActionModal from '../modals/NextActionModal';
+import CapturePetPhotoModal from '../modals/CapturePetPhotoModal';
 
 interface MotoristaActionsProps {
   removal: Removal;
@@ -22,6 +23,7 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
   
   const [showNextActionModal, setShowNextActionModal] = useState(false);
   const [modalProps, setModalProps] = useState<{ currentRemoval: Removal; removals: Removal[] } | null>(null);
+  const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
 
   const handleUpdateStatus = (newStatus: Removal['status'], actionText: string) => {
     if (!user) return;
@@ -43,7 +45,6 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
       updates.priorityDeadline = undefined;
       
       const updatedCurrentRemoval = { ...removal, ...updates };
-      // Manually create an updated list to pass to the modal, avoiding state propagation delays
       const updatedRemovals = removals.map(r => r.id === removal.id ? updatedCurrentRemoval : r);
       
       updateRemoval(removal.id, updates);
@@ -54,6 +55,48 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
       updateRemoval(removal.id, updates);
       onClose();
     }
+  };
+
+  const handleConfirmRemovalClick = () => {
+    if (removal.modality.includes('individual')) {
+      setIsCapturingPhoto(true);
+    } else {
+      handleUpdateStatus('removido', 'removeu o pet no endereço');
+    }
+  };
+
+  const handlePhotoAttached = (file: File) => {
+    if (!user) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const photoData = `${e.target?.result as string}||${file.name}`;
+      
+      const updates: Partial<Removal> = {
+        status: 'removido',
+        isPriority: false,
+        priorityDeadline: undefined,
+        petPhotoUrl: photoData,
+        history: [
+          ...removal.history,
+          {
+            date: new Date().toISOString(),
+            action: `Motorista ${user.name.split(' ')[0]} removeu o pet no endereço e anexou uma foto.`,
+            user: user.name,
+          },
+        ],
+      };
+
+      const updatedCurrentRemoval = { ...removal, ...updates };
+      const updatedRemovals = removals.map(r => r.id === removal.id ? updatedCurrentRemoval : r);
+      
+      updateRemoval(removal.id, updates);
+      
+      setModalProps({ currentRemoval: updatedCurrentRemoval, removals: updatedRemovals });
+      setShowNextActionModal(true);
+    };
+    reader.readAsDataURL(file);
+    setIsCapturingPhoto(false);
   };
 
   const handleFinalize = () => {
@@ -198,32 +241,41 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
   }
 
   return (
-    <div className="flex items-center gap-2">
-      {removal.status === 'em_andamento' && (
-        <button
-          onClick={() => handleUpdateStatus('a_caminho', 'iniciou o deslocamento')}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md flex items-center gap-2"
-        >
-          <Truck size={16} /> Iniciar Deslocamento
-        </button>
-      )}
-      {removal.status === 'a_caminho' && (
-        <button
-          onClick={() => handleUpdateStatus('removido', 'removeu o pet no endereço')}
-          className="px-4 py-2 bg-purple-600 text-white rounded-md flex items-center gap-2"
-        >
-          <Check size={16} /> Confirmar Remoção
-        </button>
-      )}
-      {removal.status === 'removido' && (
-        <button
-          onClick={handleStartFinalization}
-          className="px-4 py-2 bg-green-600 text-white rounded-md flex items-center gap-2"
-        >
-          <Scale size={16} /> Finalizar (Pesar Pet)
-        </button>
-      )}
-    </div>
+    <>
+      <div className="flex items-center gap-2">
+        {removal.status === 'em_andamento' && (
+          <button
+            onClick={() => handleUpdateStatus('a_caminho', 'iniciou o deslocamento')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md flex items-center gap-2"
+          >
+            <Truck size={16} /> Iniciar Deslocamento
+          </button>
+        )}
+        {removal.status === 'a_caminho' && (
+          <button
+            onClick={handleConfirmRemovalClick}
+            className="px-4 py-2 bg-purple-600 text-white rounded-md flex items-center gap-2"
+          >
+            <Check size={16} /> Confirmar Remoção
+          </button>
+        )}
+        {removal.status === 'removido' && (
+          <button
+            onClick={handleStartFinalization}
+            className="px-4 py-2 bg-green-600 text-white rounded-md flex items-center gap-2"
+          >
+            <Scale size={16} /> Finalizar (Pesar Pet)
+          </button>
+        )}
+      </div>
+      
+      <CapturePetPhotoModal
+        isOpen={isCapturingPhoto}
+        onClose={() => setIsCapturingPhoto(false)}
+        onPhotoAttached={handlePhotoAttached}
+        petName={removal.pet.name}
+      />
+    </>
   );
 };
 

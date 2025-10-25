@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Removal } from '../../types';
 import { useRemovals } from '../../context/RemovalContext';
 import { useAuth } from '../../context/AuthContext';
-import { Send, Undo, XCircle, AlertTriangle, Loader } from 'lucide-react';
+import { Send, Undo, XCircle, AlertTriangle, Loader, FastForward } from 'lucide-react';
 import { mockDrivers } from '../../data/mock';
 import { geocodeAddress, calculateDistance } from '../../utils/geoUtils';
 
@@ -69,6 +69,22 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
         findBestDriver();
     }
   }, [isDirecting, removal.id, removal.removalAddress, removals]);
+
+  const handleAnticipate = () => {
+    if (!user) return;
+    updateRemoval(removal.id, {
+      status: 'solicitada',
+      history: [
+        ...removal.history,
+        {
+          date: new Date().toISOString(),
+          action: `Agendamento antecipado. A remoção foi movida para a fila de recebidas.`,
+          user: user.name,
+        },
+      ],
+    });
+    onClose();
+  };
 
   const executeDirect = () => {
     if (!selectedDriverId || !user) return;
@@ -258,6 +274,14 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
 
   return (
     <div className="flex items-center gap-2">
+      {removal.status === 'agendada' && (
+        <button
+          onClick={handleAnticipate}
+          className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 flex items-center gap-2"
+        >
+          <FastForward size={16} /> Antecipar / Mover para Recebidas
+        </button>
+      )}
       {removal.status === 'solicitada' && (
         <button
           onClick={() => setIsDirecting(true)}
