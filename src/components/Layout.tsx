@@ -54,7 +54,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 min-w-0">
               {isViewingAnotherDashboard ? (
                 <button
                   onClick={handleGoBackToMyDashboard}
@@ -75,13 +75,13 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
                   </button>
                 )
               )}
-              <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
+              <h1 className="text-base md:text-xl font-semibold text-gray-900">{title}</h1>
             </div>
             <div className="flex items-center space-x-4">
               {user && (
                 <>
                   <NotificationBell />
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-gray-600 hidden sm:inline">
                     Olá, {user.name}
                   </span>
                   <button

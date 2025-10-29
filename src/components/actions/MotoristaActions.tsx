@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Removal, NextTask } from '../../types';
 import { useRemovals } from '../../context/RemovalContext';
 import { useAuth } from '../../context/AuthContext';
-import { Truck, Check, Scale } from 'lucide-react';
+import { Truck, Check, Scale, Undo } from 'lucide-react';
 import NextActionModal from '../modals/NextActionModal';
 import CapturePetPhotoModal from '../modals/CapturePetPhotoModal';
 
@@ -24,6 +24,9 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
   const [showNextActionModal, setShowNextActionModal] = useState(false);
   const [modalProps, setModalProps] = useState<{ currentRemoval: Removal; removals: Removal[] } | null>(null);
   const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
+
+  const [isReturning, setIsReturning] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
 
   const handleUpdateStatus = (newStatus: Removal['status'], actionText: string) => {
     if (!user) return;
@@ -152,6 +155,27 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
     setStep('askObservation');
   };
 
+  const handleReturnToReceiver = () => {
+    if (!user || !returnReason.trim()) {
+        alert('Por favor, informe o motivo do retorno.');
+        return;
+    }
+    updateRemoval(removal.id, {
+        status: 'solicitada',
+        assignedDriver: undefined,
+        history: [
+            ...removal.history,
+            {
+                date: new Date().toISOString(),
+                action: `Motorista ${user.name.split(' ')[0]} retornou a remoção para o receptor.`,
+                reason: returnReason,
+                user: user.name,
+            },
+        ],
+    });
+    onClose();
+  };
+
   if (showNextActionModal && modalProps) {
     return (
         <NextActionModal
@@ -159,6 +183,33 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
             removals={modalProps.removals}
             onClose={onClose}
         />
+    );
+  }
+
+  if (isReturning) {
+    return (
+        <div className="w-full p-4 bg-yellow-50 rounded-lg border border-yellow-300 space-y-3">
+            <h4 className="font-semibold text-yellow-900 text-center">Informe o Motivo do Retorno</h4>
+            <textarea
+                value={returnReason}
+                onChange={(e) => setReturnReason(e.target.value)}
+                placeholder="Ex: Endereço não localizado, tutor não atendeu, etc."
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                autoFocus
+            />
+            <div className="flex gap-2 pt-2">
+                <button onClick={() => setIsReturning(false)} className="flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">
+                    Cancelar
+                </button>
+                <button 
+                    onClick={handleReturnToReceiver} 
+                    disabled={!returnReason.trim()}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                    Confirmar Retorno
+                </button>
+            </div>
+        </div>
     );
   }
 
@@ -244,20 +295,36 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
     <>
       <div className="flex items-center gap-2">
         {removal.status === 'em_andamento' && (
-          <button
-            onClick={() => handleUpdateStatus('a_caminho', 'iniciou o deslocamento')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md flex items-center gap-2"
-          >
-            <Truck size={16} /> Iniciar Deslocamento
-          </button>
+          <>
+            <button
+              onClick={() => setIsReturning(true)}
+              className="px-4 py-2 bg-yellow-500 text-white rounded-md flex items-center gap-2"
+            >
+              <Undo size={16} /> Voltar
+            </button>
+            <button
+              onClick={() => handleUpdateStatus('a_caminho', 'iniciou o deslocamento')}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md flex items-center gap-2"
+            >
+              <Truck size={16} /> Iniciar Deslocamento
+            </button>
+          </>
         )}
         {removal.status === 'a_caminho' && (
-          <button
-            onClick={handleConfirmRemovalClick}
-            className="px-4 py-2 bg-purple-600 text-white rounded-md flex items-center gap-2"
-          >
-            <Check size={16} /> Confirmar Remoção
-          </button>
+          <>
+            <button
+              onClick={() => setIsReturning(true)}
+              className="px-4 py-2 bg-yellow-500 text-white rounded-md flex items-center gap-2"
+            >
+              <Undo size={16} /> Voltar
+            </button>
+            <button
+              onClick={handleConfirmRemovalClick}
+              className="px-4 py-2 bg-purple-600 text-white rounded-md flex items-center gap-2"
+            >
+              <Check size={16} /> Confirmar Remoção
+            </button>
+          </>
         )}
         {removal.status === 'removido' && (
           <button

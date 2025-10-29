@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Truck, Phone, HardHat, Cog, DollarSign, Briefcase, User as UserIcon, Stethoscope, Handshake } from 'lucide-react';
 import RoleLoginModal, { Role } from '../components/modals/RoleLoginModal';
+import { User } from '../types';
 
 const HomePage: React.FC = () => {
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
   const navigate = useNavigate();
   const [modalState, setModalState] = useState<{ isOpen: boolean; role: Role | null }>({ isOpen: false, role: null });
 
@@ -59,17 +60,60 @@ const HomePage: React.FC = () => {
     setModalState({ isOpen: false, role: null });
   };
 
-  const handleLogin = async (email: string, password: string, userType: Role['userType']): Promise<boolean> => {
+  const handleLogin = async (email: string, password: string, userType: Role['userType']): Promise<void> => {
+    if (!modalState.role) {
+      throw new Error("Função de acesso não selecionada.");
+    }
+  
     const loggedInUser = await login(email, password, userType);
-    
+  
     if (loggedInUser) {
+      const clickedRole = modalState.role;
+  
+      const checkRoleAccess = (clickedRole: Role, loggedInUser: User): boolean => {
+        const { userType: clickedUserType, name: clickedName } = clickedRole;
+        const { userType: loggedInUserType, role: loggedInRoleName } = loggedInUser;
+  
+        if (clickedUserType !== 'funcionarios') {
+          return clickedUserType === loggedInUserType;
+        }
+  
+        if (loggedInUserType !== 'funcionario') {
+          return false;
+        }
+  
+        const roleMapping: { [key: string]: string[] } = {
+          'Motorista': ['motorista'],
+          'Receptor': ['receptor'],
+          'Operacional': ['operacional'],
+          'Financeiro': ['financeiro_junior', 'financeiro_master'],
+          'Representante': ['representante'],
+          'Gerência': ['gerencia'],
+          'Administrador': ['administrador'],
+        };
+  
+        const allowedRoles = roleMapping[clickedName];
+        return allowedRoles ? allowedRoles.includes(loggedInRoleName || '') : false;
+      };
+  
+      const hasAccess = checkRoleAccess(clickedRole, loggedInUser);
+  
+      if (!hasAccess) {
+        logout(); // Desloga o usuário imediatamente
+        throw new Error('Acesso negado. Você não tem permissão para usar este painel.');
+      }
+  
+      // Se o acesso for permitido, navega para o painel correto
       if (loggedInUser.userType === 'funcionario' && loggedInUser.role) {
         navigate(`/funcionario/${loggedInUser.role}`);
+      } else if (loggedInUser.userType === 'pessoa_fisica') {
+        navigate('/pessoa-fisica');
+      } else if (loggedInUser.userType === 'clinica') {
+        navigate('/clinica');
       }
-      return true;
+    } else {
+      throw new Error('Email ou senha inválidos.');
     }
-    
-    return false;
   };
   
   const renderRoleButton = (role: Role) => (

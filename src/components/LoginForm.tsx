@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 
 interface LoginFormProps {
-  onLogin: (email: string, password: string) => Promise<boolean>;
+  onLogin: (email: string, password: string) => Promise<void>;
   onForgotPassword: () => void;
 }
 
@@ -22,12 +22,14 @@ const LoginForm: React.FC<LoginFormProps> = ({
     setError('');
 
     try {
-      const success = await onLogin(email, password);
-      if (!success) {
-        setError('Email ou senha inválidos');
-      }
+      await onLogin(email, password);
+      // On success, navigation is handled by the parent component.
     } catch (err) {
-      setError('Erro ao fazer login. Tente novamente.');
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Ocorreu um erro inesperado. Tente novamente.');
+      }
     } finally {
       setIsLoading(false);
     }

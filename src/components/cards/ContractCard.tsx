@@ -26,13 +26,13 @@ const ContractCard: React.FC<ContractCardProps> = ({ removal, onClick }) => {
     >
       <div>
         <div className="flex justify-between items-start mb-3">
-          <div>
-            <h3 className="font-bold text-gray-800 flex items-center">
-              <FileText className="h-5 w-5 mr-2 text-gray-600" />
-              {removal.contractNumber || 'Contrato Pendente'}
+          <div className="min-w-0 pr-2">
+            <h3 className="font-bold text-gray-800 flex items-center truncate">
+              <FileText className="h-5 w-5 mr-2 text-gray-600 flex-shrink-0" />
+              <span className="truncate">{removal.contractNumber || 'Contrato Pendente'}</span>
             </h3>
           </div>
-          <span className={`text-xs font-semibold px-2 py-1 rounded-full flex items-center gap-1.5 ${status.color.replace('text-', 'bg-').replace('600', '100')} ${status.color}`}>
+          <span className={`text-xs font-semibold px-2 py-1 rounded-full flex items-center gap-1.5 ${status.color.replace('text-', 'bg-').replace('600', '100')} ${status.color} flex-shrink-0`}>
             <StatusIcon size={12} />
             {status.label}
           </span>
@@ -40,7 +40,7 @@ const ContractCard: React.FC<ContractCardProps> = ({ removal, onClick }) => {
         <div className="text-sm text-gray-700 space-y-2 mt-4">
           <div className="flex items-center">
             <Building2 className="h-4 w-4 mr-2 text-gray-500" />
-            <span>Clínica: <strong>{removal.clinicName || 'N/A'}</strong></span>
+            <span className="truncate">Clínica: <strong>{removal.clinicName || 'N/A'}</strong></span>
           </div>
           <div className="flex items-center">
             <Calendar className="h-4 w-4 mr-2 text-gray-500" />

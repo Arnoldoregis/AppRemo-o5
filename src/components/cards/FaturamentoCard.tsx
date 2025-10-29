@@ -15,12 +15,12 @@ const FaturamentoCard: React.FC<FaturamentoCardProps> = ({ lote, onGerenciar }) 
     >
       <div>
         <div className="flex justify-between items-start mb-3">
-          <div>
-            <h3 className="font-bold text-gray-800 flex items-center">
-              <Building2 className="h-5 w-5 mr-2 text-gray-600" />
-              {lote.clinicName}
+          <div className="min-w-0 pr-2">
+            <h3 className="font-bold text-gray-800 flex items-center truncate">
+              <Building2 className="h-5 w-5 mr-2 text-gray-600 flex-shrink-0" />
+              <span className="truncate">{lote.clinicName}</span>
             </h3>
-            <p className="text-xs text-gray-500 mt-1 ml-1">CNPJ: {lote.removals[0]?.clinicCnpj || 'N/A'}</p>
+            <p className="text-xs text-gray-500 mt-1 ml-1 truncate">CNPJ: {lote.removals[0]?.clinicCnpj || 'N/A'}</p>
           </div>
           <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-1 rounded-full flex-shrink-0">
             Faturado

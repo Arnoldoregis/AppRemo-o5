@@ -1,6 +1,7 @@
 import { faker } from '@faker-js/faker';
 import { Removal, RemovalStatus, User, Address } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { format } from 'date-fns';
 
 export const mockDrivers = [
   { id: 'motorista_1', name: 'Fernando', email: 'motorista@gmail.com', phone: '41984938295' },
@@ -897,6 +898,14 @@ export const generateMockRemovals = (): Removal[] => {
         contactedByFinance: faker.datatype.boolean({ probability: 0.1 }),
         cremationCompany: cremationCompany,
       };
+
+      if (status === 'agendada') {
+        const futureDate = faker.date.soon({ days: 1 });
+        removal.scheduledDate = format(futureDate, 'yyyy-MM-dd');
+        removal.scheduledTime = format(futureDate, 'HH:mm');
+        removal.schedulingReason = 'Agendado pelo tutor para melhor horário.';
+      }
+
       mockRemovals.push(removal);
     }
     return mockRemovals;

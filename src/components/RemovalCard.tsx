@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Removal, RemovalStatus } from '../types';
 import { format } from 'date-fns';
-import { List, Clock, CheckCircle, FileWarning, FileCheck, XCircle, Files, Eye, Send, Flame, PackageCheck, UserCheck, CalendarClock, AlertTriangle, ShoppingBag, HardHat, Truck, ClipboardCheck } from 'lucide-react';
+import { List, Clock, CheckCircle, FileWarning, FileCheck, XCircle, Files, Eye, Send, Flame, PackageCheck, UserCheck, CalendarClock, AlertTriangle, ShoppingBag, HardHat, Truck, ClipboardCheck, Undo } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import CountdownTimer from './shared/CountdownTimer';
 
@@ -54,10 +54,15 @@ const RemovalCard: React.FC<RemovalCardProps> = ({ removal, onClick, orderNumber
   const displayColor = isContactedByFinance ? 'green' : statusStyle.color;
 
   const modalityStyle = modalityConfig[removal.modality] || modalityConfig[''];
+
+  const isReturnedByDriver = useMemo(() => {
+    return removal.status === 'solicitada' && removal.history.some(h => h.action.includes('retornou a remoção para o receptor'));
+  }, [removal.status, removal.history]);
   
   const cardClasses = [
     "bg-white rounded-lg shadow-md p-4 transition-all hover:shadow-lg cursor-pointer border-l-8 relative",
-    removal.isPriority ? "border-red-500" : "border-transparent"
+    removal.isPriority ? "border-red-500" : (isReturnedByDriver ? "border-red-500" : "border-transparent"),
+    isReturnedByDriver ? "bg-red-50" : ""
   ].join(" ");
 
   const isScheduled = removal.status === 'agendada' && removal.scheduledDate && removal.scheduledTime;
@@ -74,21 +79,27 @@ const RemovalCard: React.FC<RemovalCardProps> = ({ removal, onClick, orderNumber
         </div>
       )}
       <div className="flex justify-between items-start">
-        <div className="flex-grow">
+        <div className="flex-grow min-w-0 pr-2">
           <p className="font-mono font-bold text-blue-700 text-sm bg-blue-100 px-2.5 py-1 rounded-full inline-block mb-2">
             {removal.code || <span className="text-yellow-600">Pendente</span>}
           </p>
           <h4 className="text-lg font-bold text-gray-800 truncate" title={removal.pet.name}>{removal.pet.name}</h4>
-          <p className="text-sm text-gray-600">Tutor: {removal.tutor.name}</p>
+          <p className="text-sm text-gray-600 truncate">Tutor: {removal.tutor.name}</p>
         </div>
-        <div className="flex flex-col items-end gap-2 flex-shrink-0 ml-2">
+        <div className="flex flex-col items-end gap-2 flex-shrink-0">
+            {isReturnedByDriver && (
+                <div className="flex items-center text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full">
+                    <Undo className="h-4 w-4 mr-1" />
+                    DEVOLVIDO
+                </div>
+            )}
             {removal.isPriority && (
                 <div className="flex items-center text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full animate-pulse">
                     <AlertTriangle className="h-4 w-4 mr-1" />
                     PRIORIDADE
                 </div>
             )}
-            <div className={`flex items-center text-sm font-medium text-${displayColor}-600 bg-${displayColor}-100 px-2 py-1 rounded-full`}>
+            <div className={`flex items-center text-sm font-medium text-${displayColor}-600 bg-${displayColor}-100 px-2 py-1 rounded-full whitespace-nowrap`}>
               <StatusIcon className="h-4 w-4 mr-1" />
               {statusStyle.label}
             </div>
