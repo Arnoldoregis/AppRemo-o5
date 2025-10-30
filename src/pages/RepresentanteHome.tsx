@@ -2,9 +2,9 @@ import React, { useState, useMemo } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../context/AuthContext';
 import { useRemovals } from '../context/RemovalContext';
-import { Calendar, FileText, Plus, Eye, Edit, Trash2, CheckCircle, Building, List, ChevronUp, ChevronDown } from 'lucide-react';
+import { Calendar, FileText, Plus, Eye, Edit, Trash2, CheckCircle, Building, List, ChevronUp, ChevronDown, Percent } from 'lucide-react';
 import { Removal, Visit } from '../types';
-import RemovalDetailsModal from '../components/modals/RemovalDetailsModal';
+import RemovalDetailsModal from '../components/RemovalDetailsModal';
 import ContractCard from '../components/cards/ContractCard';
 import { useNavigate } from 'react-router-dom';
 import ScheduleVisitModal from '../components/modals/ScheduleVisitModal';
@@ -25,6 +25,16 @@ const SolicitadasMonthCard: React.FC<SolicitadasMonthCardProps> = ({ month, remo
   const [isOpen, setIsOpen] = useState(true);
   const totalValue = removals.reduce((sum, r) => sum + r.value, 0);
 
+  const [showCommission, setShowCommission] = useState(false);
+  const [commissionPercentage, setCommissionPercentage] = useState<number | string>('');
+
+  const commissionValue = useMemo(() => {
+    if (typeof commissionPercentage === 'number' && commissionPercentage > 0) {
+        return (totalValue * commissionPercentage) / 100;
+    }
+    return 0;
+  }, [totalValue, commissionPercentage]);
+
   return (
     <div className="bg-white rounded-lg shadow-md border border-gray-200">
       <div 
@@ -38,16 +48,51 @@ const SolicitadasMonthCard: React.FC<SolicitadasMonthCardProps> = ({ month, remo
             <p className="text-sm text-gray-500">{removals.length} solicitações</p>
           </div>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4">
           <div className="text-right">
             <p className="text-sm text-gray-500">Valor Total do Lote</p>
             <p className="font-bold text-green-600">R$ {totalValue.toFixed(2)}</p>
           </div>
+          <button 
+            type="button"
+            onClick={(e) => {
+                e.stopPropagation();
+                setShowCommission(!showCommission);
+            }}
+            className="text-sm bg-yellow-100 text-yellow-800 px-3 py-1.5 rounded-full hover:bg-yellow-200 flex items-center gap-1.5 transition-colors"
+            title="Calcular comissão"
+          >
+            <Percent size={14} />
+            {showCommission ? 'Ocultar' : 'Comissão'}
+          </button>
           <button className="p-2 rounded-full hover:bg-gray-200">
             {isOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
           </button>
         </div>
       </div>
+
+      {showCommission && (
+        <div className="p-4 border-t bg-yellow-50 border-yellow-200">
+            <h4 className="font-semibold text-yellow-900 mb-2">Cálculo de Comissão</h4>
+            <div className="flex items-center gap-4">
+                <div className="flex-1">
+                    <label className="text-xs font-medium text-gray-700">Porcentagem (%)</label>
+                    <input 
+                        type="number"
+                        value={commissionPercentage}
+                        onChange={(e) => setCommissionPercentage(e.target.value ? parseFloat(e.target.value) : '')}
+                        placeholder="Ex: 5"
+                        className="w-full px-2 py-1 border rounded-md"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+                <div className="text-right">
+                    <p className="text-sm text-gray-500">Valor da Comissão</p>
+                    <p className="font-bold text-lg text-green-700">R$ {commissionValue.toFixed(2)}</p>
+                </div>
+            </div>
+        </div>
+      )}
 
       {isOpen && (
         <div className="border-t border-gray-200">
