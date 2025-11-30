@@ -4,7 +4,7 @@ import { useRemovals } from '../context/RemovalContext';
 import { useAgenda } from '../context/AgendaContext';
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
-import { CalendarDays, Download, Search, Filter, PackageCheck, Truck, Plus, UserCheck, CalendarClock, CheckCircle } from 'lucide-react';
+import { CalendarDays, Download, Search, Filter, PackageCheck, Truck, Plus, UserCheck, CalendarClock, CheckCircle, Award } from 'lucide-react';
 import { Removal } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
@@ -15,6 +15,8 @@ import AwaitingPickupList from '../components/shared/AwaitingPickupList';
 import MonthlyBatchCard from '../components/cards/MonthlyBatchCard';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import CertificateModal from '../components/modals/CertificateModal';
+import CremationDataModal from '../components/modals/CremationDataModal';
 
 interface FinanceiroJuniorHomeProps {
   isReadOnly?: boolean;
@@ -31,7 +33,13 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<'todos' | 'convencional' | 'faturado'>('todos');
   const [deliveryFilter, setDeliveryFilter] = useState<'entrega_agendada' | 'aguardando_retirada' | 'entregue_retirado' | 'todos'>('entrega_agendada');
+  const [certificateStatusFilter, setCertificateStatusFilter] = useState<'todos' | 'ag_gerar' | 'gerado'>('todos');
   const [isScheduleDeliveryModalOpen, setIsScheduleDeliveryModalOpen] = useState(false);
+
+  // Estados para geração de certificado via card
+  const [isCertificateModalOpen, setIsCertificateModalOpen] = useState(false);
+  const [isCremationDataModalOpen, setIsCremationDataModalOpen] = useState(false);
+  const [removalForCertificate, setRemovalForCertificate] = useState<Removal | null>(null);
 
   useEffect(() => {
     if (selectedRemoval) {
@@ -40,10 +48,18 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
         setSelectedRemoval(updatedVersion);
       }
     }
-  }, [removals, selectedRemoval?.code]);
+    // Atualiza também o removalForCertificate se ele estiver sendo exibido
+    if (removalForCertificate) {
+        const updatedVersion = removals.find(r => r.code === removalForCertificate.code);
+        if (updatedVersion) {
+            setRemovalForCertificate(updatedVersion);
+        }
+    }
+  }, [removals, selectedRemoval?.code, removalForCertificate?.code]);
 
   useEffect(() => {
     setPaymentFilter('todos');
+    setCertificateStatusFilter('todos');
     if (activeTab === 'agenda_entrega') {
         setDeliveryFilter('entrega_agendada');
     } else {
@@ -127,6 +143,73 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     });
   };
 
+  const handleQuickCertificate = (e: React.MouseEvent, removal: Removal) => {
+    e.stopPropagation();
+    setRemovalForCertificate(removal);
+    if (!removal.cremationDate || !removal.cremationCompany) {
+        setIsCremationDataModalOpen(true);
+    } else {
+        setIsCertificateModalOpen(true);
+    }
+  };
+
+  const handleConfirmCremationData = (data: { date: string; company: 'PETCÈU' | 'SQP' }) => {
+    if (!user || !removalForCertificate) return;
+    
+    const [year, month, day] = data.date.split('-');
+    const formattedDate = `${day}/${month}/${year}`;
+
+    const updates: Partial<Removal> = {};
+    const historyActions: string[] = [];
+
+    if (!removalForCertificate.cremationDate && data.date) {
+        updates.cremationDate = data.date;
+        historyActions.push(`data de cremação definida para ${formattedDate}`);
+    }
+    if (!removalForCertificate.cremationCompany && data.company) {
+        updates.cremationCompany = data.company;
+        historyActions.push(`empresa de cremação definida para ${data.company}`);
+    }
+
+    if (historyActions.length > 0) {
+        updateRemoval(removalForCertificate.id, {
+        ...updates,
+        history: [
+            ...removalForCertificate.history,
+            {
+            date: new Date().toISOString(),
+            action: `Financeiro Junior ${user.name.split(' ')[0]} atualizou dados para certificado: ${historyActions.join(' e ')}.`,
+            user: user.name,
+            },
+        ],
+        });
+        
+        // Atualiza o estado local para refletir imediatamente no modal de certificado
+        setRemovalForCertificate(prev => prev ? ({ ...prev, ...updates }) : null);
+    }
+    
+    setIsCremationDataModalOpen(false);
+    setTimeout(() => {
+        setIsCertificateModalOpen(true);
+    }, 100);
+  };
+
+  const handleCertificateDownload = () => {
+    if (!user || !removalForCertificate) return;
+    
+    updateRemoval(removalForCertificate.id, {
+        certificateGenerated: true,
+        history: [
+            ...removalForCertificate.history,
+            {
+                date: new Date().toISOString(),
+                action: `Certificado gerado e baixado por ${user.name.split(' ')[0]}.`,
+                user: user.name,
+            },
+        ],
+    });
+  };
+
   const filteredRemovals = useMemo(() => {
     if (!user) return [];
     let baseFiltered: Removal[] = [];
@@ -177,14 +260,30 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
                 baseFiltered = removals.filter(r => r.status === deliveryFilter && filterByRole(r));
             }
             break;
-        case 'finalizadas':
-            baseFiltered = removals.filter(r => r.status === 'aguardando_baixa_master' && filterByRole(r));
+        case 'gerar_certificados':
+            // Filtra remoções coletivas que foram finalizadas para o master (aguardando_baixa_master) ou já finalizadas
+            // E que já possuem dados de cremação (preenchidos pelo Receptor)
+            // IMPORTANTE: Permite visualizar remoções sem Financeiro Junior atribuído (vindas direto do Receptor)
+            baseFiltered = removals.filter(r => 
+                r.modality === 'coletivo' && 
+                (r.status === 'aguardando_baixa_master' || r.status === 'finalizada') && 
+                r.cremationDate && r.cremationCompany &&
+                (filterByRole(r) || !r.assignedFinanceiroJunior)
+            );
+
+            if (certificateStatusFilter === 'ag_gerar') {
+                // AG Gerar: Certificado ainda não foi marcado como gerado
+                baseFiltered = baseFiltered.filter(r => !r.certificateGenerated);
+            } else if (certificateStatusFilter === 'gerado') {
+                // Gerado: Certificado já foi marcado como gerado
+                baseFiltered = baseFiltered.filter(r => r.certificateGenerated);
+            }
             break;
         default:
             baseFiltered = [];
     }
 
-    if (paymentFilter !== 'todos' && !['agendado_despedida', 'pronto_para_entrega', 'agenda_entrega'].includes(activeTab)) {
+    if (paymentFilter !== 'todos' && !['agendado_despedida', 'pronto_para_entrega', 'agenda_entrega', 'gerar_certificados'].includes(activeTab)) {
         if (paymentFilter === 'faturado') {
             baseFiltered = baseFiltered.filter(r => r.paymentMethod === 'faturado');
         } else {
@@ -202,7 +301,7 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     }
 
     return baseFiltered;
-  }, [activeTab, removals, searchTerm, schedule, paymentFilter, user, deliveryFilter, viewedRole, isReadOnly]);
+  }, [activeTab, removals, searchTerm, schedule, paymentFilter, user, deliveryFilter, viewedRole, isReadOnly, certificateStatusFilter]);
 
   const deliveredOrPickedUpGroupedByMonth = useMemo(() => {
     if (activeTab !== 'agenda_entrega' || deliveryFilter !== 'entregue_retirado') {
@@ -249,7 +348,7 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     { id: 'agendado_despedida', label: 'Agendado Despedida' },
     { id: 'pronto_para_entrega', label: 'Pronto p/ Entrega', icon: PackageCheck },
     { id: 'agenda_entrega', label: 'Agenda de Entrega', icon: Truck },
-    { id: 'finalizadas', label: 'Finalizadas' },
+    { id: 'gerar_certificados', label: 'Gerar Certificados', icon: Award },
   ];
 
   const paymentFilters = [
@@ -263,6 +362,12 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     { id: 'aguardando_retirada' as const, label: 'Aguardando Retirada', icon: UserCheck },
     { id: 'entregue_retirado' as const, label: 'Entregue/Retirado', icon: CheckCircle },
     { id: 'todos' as const, label: 'Todos' },
+  ];
+
+  const certificateFilters = [
+    { id: 'todos' as const, label: 'Todos' },
+    { id: 'ag_gerar' as const, label: 'AG Gerar' },
+    { id: 'gerado' as const, label: 'Certificado Gerado' },
   ];
 
   const renderAgendaContent = () => {
@@ -341,7 +446,7 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
           </nav>
         </div>
         
-        {['individuais', 'finalizadas'].includes(activeTab) && (
+        {activeTab === 'individuais' && (
             <div className="p-4 border-b flex items-center justify-center gap-2 bg-gray-50">
                 <Filter className="h-4 w-4 text-gray-500" />
                 <span className="text-sm font-semibold text-gray-600 mr-2">Filtrar por pagamento:</span>
@@ -350,6 +455,22 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
                         key={filter.id}
                         onClick={() => setPaymentFilter(filter.id)} 
                         className={`px-3 py-1 text-xs rounded-full transition-colors ${paymentFilter === filter.id ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                    >
+                        {filter.label}
+                    </button>
+                ))}
+            </div>
+        )}
+
+        {activeTab === 'gerar_certificados' && (
+            <div className="p-4 border-b flex items-center justify-center gap-2 bg-gray-50">
+                <Filter className="h-4 w-4 text-gray-500" />
+                <span className="text-sm font-semibold text-gray-600 mr-2">Filtrar por status:</span>
+                {certificateFilters.map(filter => (
+                    <button 
+                        key={filter.id}
+                        onClick={() => setCertificateStatusFilter(filter.id)} 
+                        className={`px-3 py-1 text-xs rounded-full transition-colors ${certificateStatusFilter === filter.id ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                     >
                         {filter.label}
                     </button>
@@ -388,7 +509,26 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
             </div>
           ) : filteredRemovals.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredRemovals.map(removal => <RemovalCard key={removal.code} removal={removal} onClick={() => setSelectedRemoval(removal)} />)}
+              {filteredRemovals.map(removal => (
+                <div key={removal.code} className="flex flex-col">
+                    <RemovalCard removal={removal} onClick={() => setSelectedRemoval(removal)} />
+                    {activeTab === 'gerar_certificados' && !removal.certificateGenerated && (
+                        <button
+                            onClick={(e) => handleQuickCertificate(e, removal)}
+                            className="mt-2 w-full py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center justify-center gap-2 font-medium shadow-sm transition-colors"
+                        >
+                            <Award size={16} />
+                            Gerar Certificado
+                        </button>
+                    )}
+                    {activeTab === 'gerar_certificados' && removal.certificateGenerated && (
+                        <div className="mt-2 w-full py-2 bg-green-100 text-green-800 rounded-md flex items-center justify-center gap-2 font-medium border border-green-200">
+                            <CheckCircle size={16} />
+                            Certificado Gerado
+                        </div>
+                    )}
+                </div>
+              ))}
             </div>
           ) : (
             <p className="text-center text-gray-500 py-12">Nenhuma remoção nesta categoria.</p>
@@ -400,6 +540,22 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
         isOpen={isScheduleDeliveryModalOpen} 
         onClose={() => setIsScheduleDeliveryModalOpen(false)} 
       />
+      {removalForCertificate && (
+        <>
+            <CremationDataModal
+                isOpen={isCremationDataModalOpen}
+                onClose={() => setIsCremationDataModalOpen(false)}
+                onConfirm={handleConfirmCremationData}
+                removal={removalForCertificate}
+            />
+            <CertificateModal
+                isOpen={isCertificateModalOpen}
+                onClose={() => setIsCertificateModalOpen(false)}
+                removal={removalForCertificate}
+                onDownload={handleCertificateDownload}
+            />
+        </>
+      )}
     </Layout>
   );
 };

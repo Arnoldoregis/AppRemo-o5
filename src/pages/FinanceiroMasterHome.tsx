@@ -44,13 +44,25 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
     }
   }, [activeTab]);
 
+  // Helper para filtrar visualização
+  const shouldShowRemoval = (r: Removal) => {
+    if (!user) return false;
+    // Se o usuário logado é Financeiro Master, ele vê apenas o que está atribuído a ele ou o que não tem atribuição (pool geral)
+    if (user.role === 'financeiro_master') {
+        return !r.assignedFinanceiroMaster || r.assignedFinanceiroMaster.id === user.id;
+    }
+    // Se for Financeiro Junior (ou outro com permissão) acessando o painel Master,
+    // vê todas as remoções que estão no estágio do Master.
+    return true;
+  };
+
   const faturamentoLotesPorMes = useMemo(() => {
     if (!user) return [];
     
     const removalsToGroup = removals.filter(r => 
         r.paymentMethod === 'faturado' && 
         r.status === 'aguardando_baixa_master' &&
-        r.assignedFinanceiroMaster?.id === user.id
+        shouldShowRemoval(r)
     );
 
     const removalsByMonth: { [month: string]: Removal[] } = {};
@@ -100,14 +112,14 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
       case 'remocao_solicitada':
         baseRemovals = removals.filter(r => 
           r.status === 'encaminhado_master' &&
-          r.assignedFinanceiroMaster?.id === user.id
+          shouldShowRemoval(r)
         );
         break;
       case 'dar_baixa':
         baseRemovals = removals.filter(r => 
           r.status === 'aguardando_baixa_master' && 
           r.paymentMethod !== 'faturado' &&
-          r.assignedFinanceiroMaster?.id === user.id
+          shouldShowRemoval(r)
         );
         break;
       default:
@@ -131,7 +143,7 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
 
     const baseFinalizadas = removals.filter(r => 
       r.status === 'finalizada' &&
-      r.assignedFinanceiroMaster?.id === user.id
+      shouldShowRemoval(r)
     );
 
     const searchedFinalizadas = searchTerm 

@@ -65,6 +65,13 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
     return null;
   };
 
+  // Helper para formatar data sem problemas de timezone
+  const formatCremationDate = (dateString: string | undefined) => {
+    if (!dateString) return 'Não definida';
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  };
+
   const financialBreakdown = useMemo(() => {
     if (user?.role !== 'financeiro_junior' || !removal) {
       return null;
@@ -547,7 +554,7 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
 
           <DetailSection title="Dados da Cremação" icon={Flame}>
             <DetailItem label="Empresa de Cremação" value={removal.cremationCompany} />
-            <DetailItem label="Data da Cremação" value={removal.cremationDate ? format(new Date(removal.cremationDate), 'dd/MM/yyyy') : 'Não definida'} />
+            <DetailItem label="Data da Cremação" value={formatCremationDate(removal.cremationDate)} />
             <DetailItem label="Observações para o Certificado" value={removal.certificateObservations} />
           </DetailSection>
 

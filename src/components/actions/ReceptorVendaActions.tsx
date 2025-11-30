@@ -101,6 +101,15 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
 
   const handleFinalizeForOperational = () => {
     if (!user) return;
+    // Validação de dados de cremação
+    if (!removal.cremationDate || !removal.cremationCompany) {
+        alert('É obrigatório preencher os Dados de Cremação (Empresa e Data) antes de finalizar. Acesse a aba "Dados Cremação" em "Adicionar/Editar".');
+        setIsConfirmingOperational(false);
+        setIsEditing(true);
+        setActiveEditTab('cremation');
+        return;
+    }
+
     updateRemoval(removal.id, {
         status: 'aguardando_producao_adicionais',
         history: [...removal.history, { date: new Date().toISOString(), action: `Receptor ${user.name.split(' ')[0]} finalizou as vendas e encaminhou para o Operacional.`, user: user.name }],
@@ -109,11 +118,14 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
   };
 
   const handleAttemptFinalizeForMaster = () => {
-    if (!removal.cremationCompany || !removal.cremationDate) {
-      alert('Não é possível finalizar para o Master. Por favor, preencha a Empresa de Cremação e a Data da Cremação na aba "Dados Cremação" dentro de "Adicionar/Editar".');
-    } else {
-      setIsConfirmingMaster(true);
+    // Validação de dados de cremação
+    if (!removal.cremationDate || !removal.cremationCompany) {
+        alert('É obrigatório preencher os Dados de Cremação (Empresa e Data) antes de finalizar. Acesse a aba "Dados Cremação" em "Adicionar/Editar".');
+        setIsEditing(true);
+        setActiveEditTab('cremation');
+        return;
     }
+    setIsConfirmingMaster(true);
   };
 
   const handleFinalizeForMaster = () => {

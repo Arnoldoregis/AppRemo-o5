@@ -116,6 +116,7 @@ export interface Removal {
   cremationDate?: string;
   cremationCompany?: 'PETCÈU' | 'SQP';
   certificateObservations?: string;
+  certificateGenerated?: boolean; // Nova flag para controlar se o certificado já foi gerado
   contactedByFinance?: boolean;
   bagAssemblyDetails?: {
     standardUrn: {
