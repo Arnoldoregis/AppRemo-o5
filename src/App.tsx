@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import HomePage from './pages/HomePage';
@@ -13,6 +13,7 @@ import AgendaDespedida from './pages/AgendaDespedida';
 import CremadorDashboardPage from './pages/CremadorDashboardPage';
 import ReceptorSolicitarRemocaoPage from './pages/ReceptorSolicitarRemocaoPage';
 import RepresentanteGerarContrato from './pages/RepresentanteGerarContrato';
+import SplashScreen from './components/SplashScreen';
 
 // Componente para rotas protegidas
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -21,6 +22,21 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 function App() {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Exibe a splash screen por 3.5 segundos (tempo suficiente para ver a animação)
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 3500);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isLoading) {
+    return <SplashScreen />;
+  }
+
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />

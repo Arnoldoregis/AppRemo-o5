@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Truck, Phone, HardHat, Cog, DollarSign, Briefcase, User as UserIcon, Stethoscope, Handshake } from 'lucide-react';
 import RoleLoginModal, { Role } from '../components/modals/RoleLoginModal';
 import { User } from '../types';
+import { APP_IMAGES } from '../config/assets';
 
 const HomePage: React.FC = () => {
   const { login, logout } = useAuth();
@@ -120,7 +121,7 @@ const HomePage: React.FC = () => {
     <button
       key={role.name}
       onClick={() => handleRoleClick(role)}
-      className={`group relative flex w-full aspect-square flex-col items-center justify-center rounded-xl border p-4 transition-all duration-300 md:h-36 md:w-36 md:aspect-auto ${colorClasses[role.color]}`}
+      className={`group relative flex w-full aspect-square flex-col items-center justify-center rounded-xl border p-4 transition-all duration-300 md:h-36 md:w-36 md:aspect-auto shadow-sm hover:shadow-md hover:-translate-y-1 ${colorClasses[role.color]} bg-opacity-90 backdrop-blur-sm`}
     >
       <role.icon className={`h-8 w-8 transition-colors ${iconColorClasses[role.color]}`} />
       <span className="mt-3 text-center text-xs font-semibold transition-colors">
@@ -130,32 +131,52 @@ const HomePage: React.FC = () => {
   );
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-white p-8 font-sans text-gray-800">
-      <main className="mx-auto w-full max-w-5xl text-center">
-        <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">
-          REMOÇÃO PET
-        </h1>
-        <p className="mt-4 text-base leading-7 text-gray-600">
-          SISTEMA DE GERENCIAMENTO DE REMOÇÃO
-        </p>
+    <div className="relative min-h-screen w-full overflow-hidden font-sans text-gray-800 bg-gray-50">
+      {/* Camada de Fundo Fixa */}
+      <div 
+        className="fixed inset-0 z-0"
+        style={{ 
+          backgroundImage: `url(${APP_IMAGES.homeBackground})`,
+          backgroundSize: '70%',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      />
 
-        <div className="mt-12">
-            {/* Mobile/Tablet layout */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:hidden gap-5">
-                {roles.map(renderRoleButton)}
-            </div>
+      {/* Camada de Overlay (Branco Transparente) */}
+      <div className="fixed inset-0 z-0 bg-white/10 backdrop-blur-sm" />
 
-            {/* Desktop layout */}
-            <div className="hidden md:flex flex-col items-center space-y-5">
-                <div className="grid grid-cols-5 gap-5">
-                    {roles.slice(0, 5).map(renderRoleButton)}
-                </div>
-                <div className="grid grid-cols-4 gap-5">
-                    {roles.slice(5).map(renderRoleButton)}
-                </div>
-            </div>
-        </div>
-      </main>
+      {/* Conteúdo Principal (Scrollável se necessário) */}
+      <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-4 md:p-8">
+        <main className="mx-auto w-full max-w-6xl text-center">
+          {/* Container do Conteúdo com fundo bem transparente (20%) e desfoque suave */}
+          <div className="bg-white/20 backdrop-blur-sm rounded-3xl p-6 md:p-10 shadow-xl border border-white/20">
+              <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl drop-shadow-sm">
+              REMOÇÃO PET
+              </h1>
+              <p className="mt-4 text-base leading-7 text-gray-800 font-bold">
+              SISTEMA DE GERENCIAMENTO DE REMOÇÃO
+              </p>
+
+              <div className="mt-12">
+                  {/* Layout Mobile/Tablet */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:hidden gap-4">
+                      {roles.map(renderRoleButton)}
+                  </div>
+
+                  {/* Layout Desktop */}
+                  <div className="hidden md:flex flex-col items-center space-y-5">
+                      <div className="grid grid-cols-5 gap-5">
+                          {roles.slice(0, 5).map(renderRoleButton)}
+                      </div>
+                      <div className="grid grid-cols-4 gap-5">
+                          {roles.slice(5).map(renderRoleButton)}
+                      </div>
+                  </div>
+              </div>
+          </div>
+        </main>
+      </div>
 
       <RoleLoginModal
         isOpen={modalState.isOpen}

@@ -1,8 +1,8 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { Removal } from '../../types';
-import { X, Download, Loader } from 'lucide-react';
+import { X, Download, Loader, Printer } from 'lucide-react';
 import html2canvas from 'html2canvas';
-import { format } from 'date-fns';
+import { CERTIFICATE_BACKGROUNDS } from '../../config/assets';
 
 interface CertificateProps {
     removal: Removal;
@@ -13,7 +13,6 @@ interface CertificateProps {
 const formatCremationDate = (dateString: string | undefined) => {
     if (!dateString) return 'Data não definida';
     // Adiciona T00:00:00 para forçar a interpretação como data local, não UTC
-    // Ou faz o split manual para garantir
     const [year, month, day] = dateString.split('-');
     return `${day}/${month}/${year}`;
 };
@@ -23,7 +22,7 @@ const IndividualCertificate: React.FC<CertificateProps> = ({ removal, imageUrl }
 
     return (
         <div
-            className="relative w-[800px] h-[565px] text-black bg-white"
+            className="relative w-[800px] h-[565px] text-black bg-white overflow-hidden"
             style={{ fontFamily: "'Times New Roman', Times, serif" }}
         >
             {imageUrl && (
@@ -34,18 +33,20 @@ const IndividualCertificate: React.FC<CertificateProps> = ({ removal, imageUrl }
                     crossOrigin="anonymous"
                 />
             )}
-            <p className="absolute font-bold tracking-widest" style={{ top: '230px', left: '350px', fontSize: '24px' }}>
-                {removal.pet.name.toUpperCase()}
-            </p>
-            <p className="absolute font-bold tracking-wider" style={{ top: '265px', left: '350px', fontSize: '20px' }}>
-                {removal.pet.breed.toUpperCase()}
-            </p>
-            <p className="absolute font-bold tracking-wider" style={{ top: '265px', right: '100px', fontSize: '20px' }}>
-                {formattedDate}
-            </p>
-            <p className="absolute font-bold tracking-wider" style={{ top: '340px', left: '460px', fontSize: '20px' }}>
-                {removal.tutor.name.toUpperCase()}
-            </p>
+            <div className="absolute inset-0 z-10">
+                <p className="absolute font-bold tracking-widest" style={{ top: '230px', left: '350px', fontSize: '24px' }}>
+                    {removal.pet.name.toUpperCase()}
+                </p>
+                <p className="absolute font-bold tracking-wider" style={{ top: '265px', left: '350px', fontSize: '20px' }}>
+                    {removal.pet.breed.toUpperCase()}
+                </p>
+                <p className="absolute font-bold tracking-wider" style={{ top: '265px', right: '100px', fontSize: '20px' }}>
+                    {formattedDate}
+                </p>
+                <p className="absolute font-bold tracking-wider" style={{ top: '340px', left: '460px', fontSize: '20px' }}>
+                    {removal.tutor.name.toUpperCase()}
+                </p>
+            </div>
         </div>
     );
 };
@@ -55,7 +56,7 @@ const CollectiveCertificate: React.FC<CertificateProps> = ({ removal, imageUrl }
 
     return (
         <div
-            className="relative w-[800px] h-[565px] text-[#3a506b] bg-white"
+            className="relative w-[800px] h-[565px] text-[#3a506b] bg-white overflow-hidden"
             style={{ fontFamily: "'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif" }}
         >
             {imageUrl && (
@@ -66,7 +67,7 @@ const CollectiveCertificate: React.FC<CertificateProps> = ({ removal, imageUrl }
                     crossOrigin="anonymous"
                 />
             )}
-            <div className="absolute w-full text-center" style={{ top: '230px', fontSize: '17px', lineHeight: '1.7' }}>
+            <div className="absolute w-full text-center z-10" style={{ top: '230px', fontSize: '17px', lineHeight: '1.7' }}>
                 <p>Certificamos que <span className="font-bold">{removal.pet.name}</span></p>
                 <p>Da Raça <span className="font-bold">{removal.pet.breed}</span></p>
                 <p>foi cremado em <span className="font-bold">{formattedDate}</span></p>
@@ -86,87 +87,24 @@ interface CertificateModalProps {
 
 const CertificateModal: React.FC<CertificateModalProps> = ({ isOpen, onClose, removal, onDownload }) => {
     const certificateRef = useRef<HTMLDivElement>(null);
-    const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
-    const [isLoadingImage, setIsLoadingImage] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
-    const objectUrlRef = useRef<string | null>(null);
     
-    const individualUrl = "https://i.ibb.co/yQW2k31/individual.jpg";
-    const collectiveUrl = "https://i.ibb.co/gbkS27xf/Certificado-limpo.jpg";
-
-    const targetUrl = removal.modality === 'coletivo' ? collectiveUrl : individualUrl;
-
-    // Efeito para pré-carregar a imagem como Blob para evitar erros de CORS no html2canvas
-    useEffect(() => {
-        let isMounted = true;
-        
-        const loadImage = async () => {
-            if (!isOpen) return;
-            
-            setIsLoadingImage(true);
-            setLocalImageUrl(null);
-
-            // Limpa URL anterior se existir
-            if (objectUrlRef.current) {
-                URL.revokeObjectURL(objectUrlRef.current);
-                objectUrlRef.current = null;
-            }
-
-            const fetchImage = async (url: string) => {
-                const response = await fetch(url, { mode: 'cors' });
-                if (!response.ok) throw new Error(`Failed to load ${url}`);
-                return response.blob();
-            };
-
-            try {
-                let blob;
-                
-                // Estratégia 1: Tentar fetch direto (i.ibb.co geralmente suporta CORS)
-                try {
-                    blob = await fetchImage(targetUrl);
-                } catch (directError) {
-                    console.warn("Fetch direto falhou, tentando proxy...", directError);
-                    // Estratégia 2: Usar corsproxy.io se direto falhar
-                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-                    blob = await fetchImage(proxyUrl);
-                }
-
-                if (isMounted && blob) {
-                    const objectUrl = URL.createObjectURL(blob);
-                    objectUrlRef.current = objectUrl;
-                    setLocalImageUrl(objectUrl);
-                }
-            } catch (error) {
-                console.error("Erro fatal ao carregar imagem do certificado:", error);
-                // Fallback visual: usa a URL direta (pode não funcionar no download se tiver CORS estrito)
-                if (isMounted) setLocalImageUrl(targetUrl);
-            } finally {
-                if (isMounted) setIsLoadingImage(false);
-            }
-        };
-
-        loadImage();
-
-        return () => {
-            isMounted = false;
-            if (objectUrlRef.current) {
-                URL.revokeObjectURL(objectUrlRef.current);
-                objectUrlRef.current = null;
-            }
-        };
-    }, [isOpen, targetUrl]);
+    // Usando as URLs centralizadas do arquivo de configuração
+    const targetUrl = removal.modality === 'coletivo' 
+        ? CERTIFICATE_BACKGROUNDS.collective 
+        : CERTIFICATE_BACKGROUNDS.individual;
 
     const handleDownload = () => {
-        if (certificateRef.current && localImageUrl) {
+        if (certificateRef.current) {
             setIsGenerating(true);
             
-            // Pequeno delay para garantir que o DOM está pronto
+            // Pequeno delay para garantir que a renderização está estável
             setTimeout(() => {
                 html2canvas(certificateRef.current!, {
                     scale: 2,
                     backgroundColor: '#ffffff',
-                    useCORS: true, // Importante
-                    allowTaint: true, // Permite desenhar imagens de outras origens, mas pode bloquear toDataURL se não for CORS-safe
+                    useCORS: true, // Permite carregar imagens externas (ImgBB)
+                    allowTaint: false, // Impede canvas "sujo" para permitir download
                     logging: false,
                 }).then(canvas => {
                     try {
@@ -180,12 +118,78 @@ const CertificateModal: React.FC<CertificateModalProps> = ({ isOpen, onClose, re
                         }
                     } catch (e) {
                         console.error("Erro ao salvar imagem (provavelmente Tainted Canvas):", e);
-                        alert("Não foi possível baixar a imagem devido a restrições de segurança do navegador (CORS). Tente novamente ou contate o suporte.");
+                        alert("Não foi possível baixar a imagem devido a restrições de segurança do navegador (CORS). Tente novamente ou use outro navegador.");
                     }
                     setIsGenerating(false);
                 }).catch(err => {
                     console.error("Falha ao gerar o canvas do certificado:", err);
                     alert("Ocorreu um erro ao gerar o certificado. Tente novamente.");
+                    setIsGenerating(false);
+                });
+            }, 100);
+        }
+    };
+
+    const handlePrint = () => {
+        if (certificateRef.current) {
+            setIsGenerating(true);
+            
+            setTimeout(() => {
+                html2canvas(certificateRef.current!, {
+                    scale: 4, // Escala maior para melhor qualidade de impressão
+                    backgroundColor: '#ffffff',
+                    useCORS: true,
+                    allowTaint: false,
+                    logging: false,
+                }).then(canvas => {
+                    const imgData = canvas.toDataURL('image/png');
+                    
+                    // Cria um iframe oculto para impressão
+                    const iframe = document.createElement('iframe');
+                    iframe.style.position = 'fixed';
+                    iframe.style.right = '0';
+                    iframe.style.bottom = '0';
+                    iframe.style.width = '0';
+                    iframe.style.height = '0';
+                    iframe.style.border = '0';
+                    document.body.appendChild(iframe);
+                    
+                    const contentWindow = iframe.contentWindow;
+                    if (contentWindow) {
+                        contentWindow.document.open();
+                        contentWindow.document.write('<html><head><title>Imprimir Certificado</title>');
+                        // CSS para garantir que a imagem ocupe a página corretamente em paisagem
+                        contentWindow.document.write('<style>@page { size: landscape; margin: 0; } body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; } img { max-width: 100%; height: auto; }</style>');
+                        contentWindow.document.write('</head><body>');
+                        contentWindow.document.write(`<img src="${imgData}" />`);
+                        contentWindow.document.write('</body></html>');
+                        contentWindow.document.close();
+                        
+                        // Aguarda o carregamento da imagem no iframe antes de imprimir
+                        const img = contentWindow.document.querySelector('img');
+                        const printImage = () => {
+                            contentWindow.focus();
+                            contentWindow.print();
+                            // Remove o iframe após um tempo para garantir que a impressão foi iniciada
+                            setTimeout(() => {
+                                document.body.removeChild(iframe);
+                            }, 2000);
+                        };
+
+                        if (img) {
+                            if (img.complete) {
+                                printImage();
+                            } else {
+                                img.onload = printImage;
+                            }
+                        } else {
+                             printImage();
+                        }
+                    }
+                    setIsGenerating(false);
+                }).catch(err => {
+                    console.error("Falha ao gerar o canvas para impressão:", err);
+                    alert("Ocorreu um erro ao preparar a impressão. Tente novamente.");
                     setIsGenerating(false);
                 });
             }, 100);
@@ -203,27 +207,30 @@ const CertificateModal: React.FC<CertificateModalProps> = ({ isOpen, onClose, re
                 </div>
 
                 <div className="p-8 bg-gray-100 flex-grow overflow-auto flex items-center justify-center">
-                    {isLoadingImage ? (
-                        <div className="flex flex-col items-center text-gray-500">
-                            <Loader className="animate-spin h-8 w-8 mb-2 text-blue-600" />
-                            <p>Carregando modelo do certificado...</p>
-                        </div>
-                    ) : (
-                        <div ref={certificateRef} className="shadow-lg">
-                            {removal.modality === 'coletivo' ? (
-                                <CollectiveCertificate removal={removal} imageUrl={localImageUrl || ''} />
-                            ) : (
-                                <IndividualCertificate removal={removal} imageUrl={localImageUrl || ''} />
-                            )}
-                        </div>
-                    )}
+                    <div ref={certificateRef} className="shadow-lg">
+                        {removal.modality === 'coletivo' ? (
+                            <CollectiveCertificate removal={removal} imageUrl={targetUrl} />
+                        ) : (
+                            <IndividualCertificate removal={removal} imageUrl={targetUrl} />
+                        )}
+                    </div>
                 </div>
 
                 <div className="p-4 border-t bg-gray-50 flex justify-end items-center gap-4 flex-shrink-0">
                     <button onClick={onClose} className="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">Fechar</button>
+                    
+                    <button 
+                        onClick={handlePrint} 
+                        disabled={isGenerating}
+                        className="px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isGenerating ? <Loader className="animate-spin h-4 w-4" /> : <Printer size={16} />}
+                        Imprimir
+                    </button>
+
                     <button 
                         onClick={handleDownload} 
-                        disabled={isLoadingImage || isGenerating || !localImageUrl}
+                        disabled={isGenerating}
                         className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {isGenerating ? <Loader className="animate-spin h-4 w-4" /> : <Download size={16} />}
