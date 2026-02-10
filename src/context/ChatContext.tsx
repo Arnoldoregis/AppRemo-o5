@@ -28,21 +28,74 @@ export const useChat = () => {
 const INACTIVITY_TIMEOUT = 20 * 60 * 1000; // 20 minutos
 
 export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [conversations, setConversations] = useState<{ [key: string]: Conversation }>({});
+  // Carrega conversas do localStorage para simular um banco de dados compartilhado entre abas
+  const [conversations, setConversations] = useState<{ [key: string]: Conversation }>(() => {
+    try {
+      const stored = localStorage.getItem('mock_chat_db');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [autoReplySent, setAutoReplySent] = useState<{ [key: string]: boolean }>({});
-  const [inactivityTimers, setInactivityTimers] = useState<{ [key: string]: NodeJS.Timeout }>({});
+  const [inactivityTimers, setInactivityTimers] = useState<{ [key: string]: ReturnType<typeof setTimeout> }>({});
+  
   const { user } = useAuth();
   const { addNotification } = useNotifications();
+
+  // Lógica para usuário convidado (Guest) - ALTERADO PARA sessionStorage
+  // sessionStorage garante que cada aba tenha um ID único, mas sobrevive a refresh da página
+  const [guestId] = useState(() => {
+    const stored = sessionStorage.getItem('chat_guest_id');
+    if (stored) return stored;
+    const newId = 'guest_' + Math.random().toString(36).substr(2, 9);
+    sessionStorage.setItem('chat_guest_id', newId);
+    return newId;
+  });
+
+  // Sincroniza conversas entre abas (Simulação de Realtime)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'mock_chat_db' && e.newValue) {
+        setConversations(JSON.parse(e.newValue));
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Função auxiliar para atualizar estado e persistir no localStorage (Sync)
+  const updateConversations = (callback: (prev: { [key: string]: Conversation }) => { [key: string]: Conversation }) => {
+    setConversations(prev => {
+      const newState = callback(prev);
+      localStorage.setItem('mock_chat_db', JSON.stringify(newState));
+      return newState;
+    });
+  };
+
+  // Determina o usuário atual (Logado ou Convidado)
+  const currentUser = useMemo(() => {
+    if (user) return user;
+    return {
+      id: guestId,
+      name: 'Visitante',
+      userType: 'pessoa_fisica', // Trata como cliente PF para lógica do chat
+      role: 'guest',
+      email: '',
+      phone: '',
+      address: { cep: '', street: '', number: '', neighborhood: '', city: '', state: '' }
+    };
+  }, [user, guestId]);
 
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
 
-  // Limpeza de timers e URLs ao desmontar
   useEffect(() => {
     return () => {
-      Object.values(inactivityTimers).forEach(clearTimeout);
+      Object.values(inactivityTimers).forEach(timer => clearTimeout(timer));
       Object.values(conversationsRef.current).forEach(conv => {
         conv.messages.forEach(msg => {
           if (msg.attachment?.url.startsWith('blob:')) {
@@ -55,11 +108,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const closeConversation = useCallback((conversationId: string) => {
-    setConversations(prev => {
+    updateConversations(prev => {
       const newConvs = { ...prev };
       const convToClose = newConvs[conversationId];
 
-      // Limpa blob URLs para evitar memory leaks
       if (convToClose) {
         convToClose.messages.forEach(msg => {
           if (msg.attachment?.url.startsWith('blob:')) {
@@ -92,7 +144,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const timer = setTimeout(() => {
-      setConversations(prev => {
+      updateConversations(prev => {
         const conv = prev[conversationId];
         if (!conv) return prev;
         const closingMessage: ChatMessage = {
@@ -110,7 +162,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         };
       });
-      // Atraso para o usuário ver a mensagem antes de fechar
       setTimeout(() => closeConversation(conversationId), 3000);
     }, INACTIVITY_TIMEOUT);
 
@@ -120,16 +171,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const toggleChat = () => {
     if (isChatOpen) {
       setIsChatOpen(false);
-      if (user?.role === 'receptor') {
+      if (currentUser.role === 'receptor') {
         setActiveConversationId(null);
       }
     } else {
       setIsChatOpen(true);
-      if (user && user.userType !== 'funcionario') {
-        const convId = user.id;
+      // Se não for funcionário (é cliente ou visitante), abre a própria conversa
+      if (currentUser.userType !== 'funcionario') {
+        const convId = currentUser.id;
         setActiveConversationId(convId);
         
-        setConversations(prev => {
+        updateConversations(prev => {
           const existingConv = prev[convId];
           if (existingConv) {
             if (existingConv.unreadByClient > 0) {
@@ -142,7 +194,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               ...prev,
               [convId]: {
                 id: convId,
-                clientName: user.name,
+                clientName: currentUser.name,
                 messages: [],
                 unreadByReceptor: 0,
                 unreadByClient: 0,
@@ -157,7 +209,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const openConversation = (conversationId: string) => {
     setActiveConversationId(conversationId);
-    setConversations(prev => {
+    updateConversations(prev => {
       const conv = prev[conversationId];
       if (conv && conv.unreadByReceptor > 0) {
         return { ...prev, [conversationId]: { ...conv, unreadByReceptor: 0 } };
@@ -171,9 +223,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const sendMessage = useCallback((text: string, attachment?: File) => {
-    if (!user || (!text.trim() && !attachment)) return;
+    if (!currentUser || (!text.trim() && !attachment)) return;
 
-    const convId = user.role === 'receptor' ? activeConversationId : user.id;
+    const convId = currentUser.role === 'receptor' ? activeConversationId : currentUser.id;
     if (!convId) return;
 
     let attachmentData;
@@ -186,23 +238,23 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const newMessage: ChatMessage = {
       id: new Date().toISOString(),
-      senderId: user.id,
-      senderName: user.name.split(' ')[0],
+      senderId: currentUser.id,
+      senderName: currentUser.name.split(' ')[0],
       text: text,
       timestamp: new Date().toISOString(),
       attachment: attachmentData,
     };
 
-    if (user.userType !== 'funcionario') {
-      addNotification(`Nova mensagem no chat de ${user.name}`, { recipientRole: 'receptor' });
+    if (currentUser.userType !== 'funcionario') {
+      addNotification(`Nova mensagem no chat de ${currentUser.name}`, { recipientRole: 'receptor' });
     } else {
-      addNotification(`Você tem uma nova mensagem de ${user.name}`, { recipientId: convId });
+      addNotification(`Você tem uma nova mensagem de ${currentUser.name}`, { recipientId: convId });
     }
 
-    setConversations(prev => {
+    updateConversations(prev => {
       const existingConv = prev[convId] || {
         id: convId,
-        clientName: user.userType !== 'funcionario' ? user.name : (Object.values(prev).find(c => c.id === convId)?.clientName || 'Cliente Desconhecido'),
+        clientName: currentUser.userType !== 'funcionario' ? currentUser.name : (Object.values(prev).find(c => c.id === convId)?.clientName || 'Cliente Desconhecido'),
         messages: [],
         unreadByReceptor: 0,
         unreadByClient: 0,
@@ -213,7 +265,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       let unreadByReceptor = existingConv.unreadByReceptor;
       let unreadByClient = existingConv.unreadByClient;
 
-      if (user.userType !== 'funcionario') {
+      if (currentUser.userType !== 'funcionario') {
         unreadByReceptor += 1;
       } else {
         unreadByClient += 1;
@@ -232,16 +284,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     startInactivityTimer(convId);
 
-    if (user.userType !== 'funcionario' && !autoReplySent[convId]) {
+    if (currentUser.userType !== 'funcionario' && !autoReplySent[convId]) {
       setTimeout(() => {
         const autoReply: ChatMessage = {
           id: new Date().toISOString() + 'reply',
           senderId: 'receptor_bot',
           senderName: 'Funcionário',
-          text: `Olá, ${user.name.split(' ')[0]}! Recebemos sua mensagem e em breve um de nossos funcionários irá atendê-lo.`,
+          text: `Olá, ${currentUser.name.split(' ')[0]}! Recebemos sua mensagem e em breve um de nossos funcionários irá atendê-lo.`,
           timestamp: new Date().toISOString(),
         };
-        setConversations(currentConvs => {
+        updateConversations(currentConvs => {
           const currentConvForReply = currentConvs[convId];
           if (!currentConvForReply) return currentConvs;
           return {
@@ -256,7 +308,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setAutoReplySent(prev => ({ ...prev, [convId]: true }));
       }, 1500);
     }
-  }, [user, activeConversationId, addNotification, autoReplySent, startInactivityTimer]);
+  }, [currentUser, activeConversationId, addNotification, autoReplySent, startInactivityTimer]);
 
   const sortedConversations = useMemo(() => {
     return Object.values(conversations).sort((a, b) => 
@@ -267,15 +319,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const activeConversation = activeConversationId ? conversations[activeConversationId] : null;
 
   const totalUnreadCount = useMemo(() => {
-    if (!user) return 0;
-    if (user.role === 'receptor') {
+    if (!currentUser) return 0;
+    if (currentUser.role === 'receptor') {
       return sortedConversations.reduce((acc, c) => acc + c.unreadByReceptor, 0);
     }
-    if (user.userType !== 'funcionario' && conversations[user.id]) {
-      return conversations[user.id].unreadByClient;
+    if (currentUser.userType !== 'funcionario' && conversations[currentUser.id]) {
+      return conversations[currentUser.id].unreadByClient;
     }
     return 0;
-  }, [user, conversations, sortedConversations]);
+  }, [currentUser, conversations, sortedConversations]);
 
   const value = {
     conversations: sortedConversations,

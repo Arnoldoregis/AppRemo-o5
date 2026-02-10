@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Removal } from '../../types';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Trash2, Download, CheckCircle, Calendar, Truck, Undo } from 'lucide-react';
+import { Trash2, Download, CheckCircle, Calendar, Truck, Undo, Eye } from 'lucide-react';
 import ConfirmDeliveryModal from '../modals/ConfirmDeliveryModal';
 import { generateDeliveryReportPdf } from '../../utils/generateDeliveryReportPdf';
 
@@ -11,9 +11,10 @@ interface ScheduledDeliveryListProps {
     onCancelDelivery: (removalCode: string) => void;
     onMarkAsDelivered: (removalId: string, data: { deliveryPerson: string; receivedBy: string; deliveryDate: string; }) => void;
     onReturnToSchedule: (removalId: string) => void;
+    onViewDetails: (removal: Removal) => void;
 }
 
-const ScheduledDeliveryList: React.FC<ScheduledDeliveryListProps> = ({ removals, onCancelDelivery, onMarkAsDelivered, onReturnToSchedule }) => {
+const ScheduledDeliveryList: React.FC<ScheduledDeliveryListProps> = ({ removals, onCancelDelivery, onMarkAsDelivered, onReturnToSchedule, onViewDetails }) => {
     const [confirmingDelivery, setConfirmingDelivery] = useState<Removal | null>(null);
 
     const deliveriesByDate = useMemo(() => {
@@ -93,7 +94,7 @@ const ScheduledDeliveryList: React.FC<ScheduledDeliveryListProps> = ({ removals,
                                                     <div className="flex items-center justify-center gap-3">
                                                         <button onClick={() => setConfirmingDelivery(removal)} className="text-green-500 hover:text-green-700 p-1" title="Marcar como entregue"><CheckCircle size={18} /></button>
                                                         <button onClick={() => onReturnToSchedule(removal.id)} className="text-yellow-500 hover:text-yellow-700 p-1" title="Retornar para agendamento"><Undo size={18} /></button>
-                                                        <button onClick={() => onCancelDelivery(removal.code)} className="text-red-500 hover:text-red-700 p-1" title="Cancelar agendamento"><Trash2 size={18} /></button>
+                                                        <button onClick={() => onViewDetails(removal)} className="text-blue-500 hover:text-blue-700 p-1" title="Ver detalhes da remoção"><Eye size={18} /></button>
                                                     </div>
                                                 </td>
                                             </tr>

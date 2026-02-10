@@ -1,14 +1,14 @@
 import React, { useRef } from 'react';
-import { X, Camera, Upload, AlertTriangle, CheckCircle } from 'lucide-react';
+import { X, Camera, Upload, AlertTriangle, CreditCard, CheckCircle } from 'lucide-react';
 
-interface CapturePetPhotoModalProps {
+interface CapturePaymentProofModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPhotoAttached: (file: File) => void;
-  petName: string;
+  paymentMethod: string;
 }
 
-const CapturePetPhotoModal: React.FC<CapturePetPhotoModalProps> = ({ isOpen, onClose, onPhotoAttached, petName }) => {
+const CapturePaymentProofModal: React.FC<CapturePaymentProofModalProps> = ({ isOpen, onClose, onPhotoAttached, paymentMethod }) => {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
@@ -16,42 +16,44 @@ const CapturePetPhotoModal: React.FC<CapturePetPhotoModalProps> = ({ isOpen, onC
     const file = event.target.files?.[0];
     if (file) {
       onPhotoAttached(file);
-      onClose(); // Close modal after selection
     }
   };
 
-  const handlePaymentAttached = () => {
-    // Cria um arquivo fictício para permitir que o fluxo prossiga sem uma foto real
-    // Isso é útil quando o usuário clica em "Pagamento já Anexado" para pular a etapa de foto
+  const handleAlreadyAttached = () => {
+    // Cria um arquivo fictício para representar que o pagamento já foi anexado/validado externamente
     const dummyFile = new File(
-        ["Foto dispensada - Pagamento já anexado/validado."], 
-        "foto_dispensada_pagamento_ok.txt", 
+        ["Comprovante validado ou anexado previamente pelo motorista."], 
+        "comprovante_ja_anexado.txt", 
         { type: "text/plain" }
     );
     onPhotoAttached(dummyFile);
-    onClose();
   };
 
   if (!isOpen) return null;
+
+  const formattedPaymentMethod = paymentMethod === 'credito' ? 'Cartão de Crédito' : 'Cartão de Débito';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70] p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-lg w-full transform transition-all">
         <div className="p-4 border-b flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-900">Confirmação de Remoção</h2>
+          <h2 className="text-xl font-bold text-gray-900">Comprovante de Pagamento</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="h-6 w-6" />
           </button>
         </div>
         
         <div className="p-6 text-center">
-          <Camera className="mx-auto h-16 w-16 text-blue-500 mb-4" />
-          <h3 className="text-lg font-semibold text-gray-800">Tire uma foto do pet</h3>
+          <div className="mx-auto h-16 w-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+            <CreditCard className="h-8 w-8 text-blue-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-800">Anexar Comprovante</h3>
           <p className="text-gray-600 mt-2 mb-6">
-            Para concluir a remoção de <strong>{petName}</strong>, é necessário anexar uma foto.
+            O pagamento foi realizado via <strong>{formattedPaymentMethod}</strong>. 
+            É obrigatório anexar uma foto do comprovante da maquininha para finalizar.
           </p>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <input
               type="file"
               accept="image/*"
@@ -84,7 +86,7 @@ const CapturePetPhotoModal: React.FC<CapturePetPhotoModalProps> = ({ isOpen, onC
             </button>
 
             <button
-              onClick={handlePaymentAttached}
+              onClick={handleAlreadyAttached}
               className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors text-base"
             >
               <CheckCircle size={20} />
@@ -95,14 +97,14 @@ const CapturePetPhotoModal: React.FC<CapturePetPhotoModalProps> = ({ isOpen, onC
           <div className="mt-6 p-3 bg-yellow-50 text-yellow-800 rounded-lg border border-yellow-200 text-xs text-left flex items-start gap-2">
             <AlertTriangle size={24} className="flex-shrink-0" />
             <span>
-              Se a câmera não abrir, verifique se você concedeu as permissões necessárias para este site no seu navegador.
+              Certifique-se de que a foto esteja nítida e legível.
             </span>
           </div>
         </div>
 
         <div className="bg-gray-50 p-4 border-t text-center">
           <button onClick={onClose} className="text-sm text-gray-600 hover:underline">
-            Cancelar
+            Cancelar e Voltar
           </button>
         </div>
       </div>
@@ -110,4 +112,4 @@ const CapturePetPhotoModal: React.FC<CapturePetPhotoModalProps> = ({ isOpen, onC
   );
 };
 
-export default CapturePetPhotoModal;
+export default CapturePaymentProofModal;

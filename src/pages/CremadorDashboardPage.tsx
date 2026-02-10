@@ -14,7 +14,12 @@ import AssembleBagModal from '../components/modals/AssembleBagModal';
 
 type CremadorTab = 'ag_cremacao' | 'liberado_cremacao' | 'montar_sacola' | 'ag_liberacao' | 'liberado_sqp';
 
-const CremadorDashboardPage: React.FC = () => {
+interface CremadorDashboardPageProps {
+  isReadOnly?: boolean;
+  viewedRole?: string;
+}
+
+const CremadorDashboardPage: React.FC<CremadorDashboardPageProps> = ({ isReadOnly: propIsReadOnly }) => {
     const navigate = useNavigate();
     const { user } = useAuth();
     const { removals, cremationBatches, startCremationBatch, finishCremationBatch } = useRemovals();
@@ -23,8 +28,10 @@ const CremadorDashboardPage: React.FC = () => {
     const [selectedRemoval, setSelectedRemoval] = useState<Removal | null>(null);
     const [assembleBagModal, setAssembleBagModal] = useState<{ isOpen: boolean; removal: Removal | null }>({ isOpen: false, removal: null });
 
-    // Define que apenas o perfil 'cremador' pode editar.
-    const isReadOnly = user?.role !== 'cremador';
+    // Define permissões: Usa a prop se passada, senão verifica se é cremador ou operacional
+    const isReadOnly = propIsReadOnly !== undefined 
+        ? propIsReadOnly 
+        : (user?.role !== 'cremador' && user?.role !== 'operacional');
 
     const isDownloadDay = useMemo(() => {
         const day = new Date().getDay(); // 0 (Sun) to 6 (Sat)

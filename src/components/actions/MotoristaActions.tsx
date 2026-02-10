@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Truck, Check, Scale, Undo } from 'lucide-react';
 import NextActionModal from '../modals/NextActionModal';
 import CapturePetPhotoModal from '../modals/CapturePetPhotoModal';
+import CapturePaymentProofModal from '../modals/CapturePaymentProofModal';
 
 interface MotoristaActionsProps {
   removal: Removal;
@@ -24,6 +25,10 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
   const [showNextActionModal, setShowNextActionModal] = useState(false);
   const [modalProps, setModalProps] = useState<{ currentRemoval: Removal; removals: Removal[] } | null>(null);
   const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
+  
+  // Novos estados para o comprovante de pagamento
+  const [isCapturingPaymentProof, setIsCapturingPaymentProof] = useState(false);
+  const [paymentProofData, setPaymentProofData] = useState<string | null>(null);
 
   const [isReturning, setIsReturning] = useState(false);
   const [returnReason, setReturnReason] = useState('');
@@ -61,6 +66,15 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
   };
 
   const handleConfirmRemovalClick = () => {
+    // Normaliza a string para verificação (remove espaços extras, minúsculas)
+    const paymentMethodNormalized = removal.paymentMethod?.toLowerCase().trim() || '';
+    
+    // Se o pagamento for por "Link de Pagamento" (verifica variações), pula a etapa de foto do pet
+    if (paymentMethodNormalized.includes('link')) {
+        handleUpdateStatus('removido', 'removeu o pet no endereço (Pagamento via Link)');
+        return;
+    }
+
     if (removal.modality.includes('individual')) {
       setIsCapturingPhoto(true);
     } else {
@@ -102,6 +116,20 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
     setIsCapturingPhoto(false);
   };
 
+  // Função para processar o comprovante de pagamento
+  const handlePaymentProofAttached = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const proofString = `${e.target?.result as string}||${file.name}`;
+      setPaymentProofData(proofString);
+      setIsCapturingPaymentProof(false);
+      // Após capturar o comprovante, inicia o fluxo normal de finalização (peso/obs)
+      setIsFinalizing(true);
+      setStep('askObservation');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleFinalize = () => {
     if (!user || !realWeight) return;
 
@@ -110,7 +138,16 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
       realWeight: parseFloat(realWeight),
     };
 
+    // Se tiver comprovante capturado (apenas Crédito/Débito), adiciona ao update
+    if (paymentProofData) {
+        updates.paymentProof = paymentProofData;
+    }
+
     let actionText = `Motorista ${user.name.split(' ')[0]} pesou o pet (${realWeight} kg)`;
+
+    if (paymentProofData) {
+        actionText += ` e anexou o comprovante de pagamento`;
+    }
 
     if (petObservation.trim()) {
       updates.petCondition = removal.petCondition
@@ -148,9 +185,22 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
     setIsConfirmingWeight(false);
     setStep('askObservation');
     setPetObservation('');
+    setPaymentProofData(null); // Reseta o comprovante se cancelar
   };
 
   const handleStartFinalization = () => {
+    // REGRAS DE NEGÓCIO:
+    // 1. Se for Cartão de Crédito ou Débito -> OBRIGATÓRIO foto do comprovante.
+    // 2. Qualquer outro método -> Segue fluxo normal.
+    
+    const isCardPayment = ['credito', 'debito'].includes(removal.paymentMethod);
+
+    if (isCardPayment && !paymentProofData) {
+        setIsCapturingPaymentProof(true);
+        return; // Interrompe aqui até que a foto seja tirada
+    }
+
+    // Se não for cartão, ou se já tiver a foto do comprovante, segue para pesagem
     setIsFinalizing(true);
     setStep('askObservation');
   };
@@ -274,6 +324,12 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
                         <strong>Observação salva:</strong> {petObservation}
                     </div>
                 )}
+                {paymentProofData && (
+                    <div className="p-2 bg-green-50 border-l-4 border-green-400 text-green-800 text-sm flex items-center gap-2">
+                        <Check size={16} />
+                        <strong>Comprovante de pagamento anexado.</strong>
+                    </div>
+                )}
                 <div className="flex items-center gap-2">
                     <input
                         type="number"
@@ -341,6 +397,13 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
         onClose={() => setIsCapturingPhoto(false)}
         onPhotoAttached={handlePhotoAttached}
         petName={removal.pet.name}
+      />
+
+      <CapturePaymentProofModal
+        isOpen={isCapturingPaymentProof}
+        onClose={() => setIsCapturingPaymentProof(false)}
+        onPhotoAttached={handlePaymentProofAttached}
+        paymentMethod={removal.paymentMethod}
       />
     </>
   );

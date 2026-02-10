@@ -24,7 +24,7 @@ const navItemsConfig: Record<string, { name: string; path: string; icon: React.E
     { name: 'Financeiro Junior (Visualizar)', path: '/funcionario/financeiro_junior', icon: DollarSign },
     { name: 'Financeiro Master (Visualizar)', path: '/funcionario/financeiro_master', icon: Crown },
     { name: 'Painel do Cremador (Visualizar)', path: '/painel-cremador', icon: Flame },
-    { name: 'Agenda de Despedida (Visualizar)', path: '/agenda-despedida', icon: CalendarDays },
+    { name: 'Agenda de Despedida', path: '/agenda-despedida', icon: CalendarDays },
   ],
   operacional: [
     { name: 'Motorista (Visualizar)', path: '/funcionario/motorista', icon: Truck },

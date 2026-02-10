@@ -2,16 +2,25 @@ import React from 'react';
 import { Removal } from '../../types';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { UserCheck, Eye } from 'lucide-react';
+import { UserCheck, Eye, CheckCircle, Undo } from 'lucide-react';
 
 interface AwaitingPickupListProps {
     removals: Removal[];
     onSelectRemoval: (removal: Removal) => void;
     title: string;
     isFinalizedList?: boolean;
+    onConfirmPickup?: (removal: Removal) => void;
+    onReturnToStorage?: (removal: Removal) => void;
 }
 
-const AwaitingPickupList: React.FC<AwaitingPickupListProps> = ({ removals, onSelectRemoval, title, isFinalizedList }) => {
+const AwaitingPickupList: React.FC<AwaitingPickupListProps> = ({ 
+    removals, 
+    onSelectRemoval, 
+    title, 
+    isFinalizedList,
+    onConfirmPickup,
+    onReturnToStorage
+}) => {
     if (removals.length === 0) {
         return (
             <div className="text-center py-12 text-gray-500">
@@ -22,9 +31,21 @@ const AwaitingPickupList: React.FC<AwaitingPickupListProps> = ({ removals, onSel
     }
 
     const getRelevantDate = (removal: Removal): string => {
-        const historyAction = isFinalizedList ? 'finalizada por' : 'marcou que o tutor virá buscar';
-        const historyEntry = [...removal.history].reverse().find(h => h.action.includes(historyAction));
-        return historyEntry ? format(new Date(historyEntry.date), "dd/MM/yyyy HH:mm", { locale: ptBR }) : 'N/A';
+        if (isFinalizedList) {
+            // Procura por ações de finalização de entrega ou retirada
+            const historyEntry = [...removal.history].reverse().find(h => 
+                h.action.includes('finalizada por') || 
+                h.action.includes('Entrega finalizada') ||
+                h.action.includes('finalizou a entrega') ||
+                h.action.includes('confirmou a retirada')
+            );
+            return historyEntry ? format(new Date(historyEntry.date), "dd/MM/yyyy HH:mm", { locale: ptBR }) : 'N/A';
+        } else {
+            // Procura pela ação de agendamento de retirada
+            const historyAction = 'marcou que o tutor virá buscar';
+            const historyEntry = [...removal.history].reverse().find(h => h.action.includes(historyAction));
+            return historyEntry ? format(new Date(historyEntry.date), "dd/MM/yyyy HH:mm", { locale: ptBR }) : 'N/A';
+        }
     };
 
     return (
@@ -63,9 +84,21 @@ const AwaitingPickupList: React.FC<AwaitingPickupListProps> = ({ removals, onSel
                                 </td>
                                 {!isFinalizedList && (
                                     <td className="px-4 py-3 text-center">
-                                        <button onClick={() => onSelectRemoval(removal)} className="text-blue-600 hover:text-blue-800 p-1 rounded-full hover:bg-blue-100" title="Ver detalhes e confirmar retirada">
-                                            <Eye size={18} />
-                                        </button>
+                                        <div className="flex items-center justify-center gap-3">
+                                            {onConfirmPickup && (
+                                                <button onClick={() => onConfirmPickup(removal)} className="text-green-500 hover:text-green-700 p-1" title="Confirmar Retirada">
+                                                    <CheckCircle size={18} />
+                                                </button>
+                                            )}
+                                            {onReturnToStorage && (
+                                                <button onClick={() => onReturnToStorage(removal)} className="text-yellow-500 hover:text-yellow-700 p-1" title="Retornar para 'Pronto para Entrega'">
+                                                    <Undo size={18} />
+                                                </button>
+                                            )}
+                                            <button onClick={() => onSelectRemoval(removal)} className="text-blue-600 hover:text-blue-800 p-1 rounded-full hover:bg-blue-100" title="Ver detalhes">
+                                                <Eye size={18} />
+                                            </button>
+                                        </div>
                                     </td>
                                 )}
                             </tr>

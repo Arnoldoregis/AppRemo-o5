@@ -3,6 +3,7 @@ import { Removal, CustomAdditional } from '../../types';
 import { useRemovals } from '../../context/RemovalContext';
 import { useAuth } from '../../context/AuthContext';
 import { usePricing } from '../../context/PricingContext';
+import { useStock } from '../../context/StockContext';
 import { Edit, Upload, Plus, Trash2, Save, Flame, Minus, Building, Crown, HardHat } from 'lucide-react';
 import { collectiveAdditionals } from '../../data/pricing';
 
@@ -26,6 +27,7 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
   const { updateRemoval } = useRemovals();
   const { user } = useAuth();
   const { priceTable } = usePricing();
+  const { stock } = useStock();
   
   // States
   const [items, setItems] = useState<CustomAdditional[]>([]);
@@ -43,6 +45,9 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
   const [certificateObs, setCertificateObs] = useState('');
   const [isConfirmingOperational, setIsConfirmingOperational] = useState(false);
   const [isConfirmingMaster, setIsConfirmingMaster] = useState(false);
+  
+  // State para controle do dropdown de sugestões
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const isCollective = removal.modality === 'coletivo';
 
@@ -55,13 +60,30 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
 
   useEffect(() => {
     if (isEditing) {
-      setItems(removal.customAdditionals || []);
+      // Inicializa os estados apenas quando entra no modo de edição ou muda a remoção
+      setItems(removal.customAdditionals ? [...removal.customAdditionals] : []);
       setNewModality(removal.modality);
       setCremationCompany(removal.cremationCompany);
       setCremationDate(removal.cremationDate || '');
       setCertificateObs(removal.certificateObservations || '');
     }
-  }, [isEditing, removal]);
+  }, [isEditing, removal.id, removal.customAdditionals, removal.modality, removal.cremationCompany, removal.cremationDate, removal.certificateObservations]);
+
+  // Filtra produtos do estoque baseados no input
+  const stockSuggestions = useMemo(() => {
+    if (!productName || !showSuggestions) return [];
+    const lowerName = productName.toLowerCase();
+    return stock.filter(item => 
+        (item.category === 'material_venda' || item.category === 'sob_encomenda') &&
+        (item.name.toLowerCase().includes(lowerName) || item.trackingCode.includes(lowerName))
+    ).slice(0, 5); // Limita a 5 sugestões
+  }, [stock, productName, showSuggestions]);
+
+  const handleSelectProduct = (item: typeof stock[0]) => {
+      setProductName(item.name);
+      setProductValue(item.sellingPrice.toString());
+      setShowSuggestions(false);
+  };
 
   const getWeightKeyFromRealWeight = (weight: number): keyof typeof priceTable | null => {
     if (weight <= 5) return '0-5kg';
@@ -81,7 +103,6 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
         : removal.pet.weight as keyof typeof priceTable;
       
       if (weightKey) {
-        // Assuming default context for receptor sales (Curitiba/RM, Não Exótico, Não Faturado)
         const oldPrice = priceTable['curitiba_rm']['normal']['nao_faturado'][weightKey]?.[removal.modality] || 0;
         const newPrice = priceTable['curitiba_rm']['normal']['nao_faturado'][weightKey]?.[newModality] || 0;
         setModalityDifference(newPrice - oldPrice);
@@ -97,11 +118,11 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
     setAdjustmentValue(''); setAdjustmentProof(null);
     setNewModality(removal.modality); setModalityDifference(0); setModalityProof(null);
     setCremationCompany(undefined); setCremationDate(''); setCertificateObs('');
+    setShowSuggestions(false);
   };
 
   const handleFinalizeForOperational = () => {
     if (!user) return;
-    // Validação de dados de cremação
     if (!removal.cremationDate || !removal.cremationCompany) {
         alert('É obrigatório preencher os Dados de Cremação (Empresa e Data) antes de finalizar. Acesse a aba "Dados Cremação" em "Adicionar/Editar".');
         setIsConfirmingOperational(false);
@@ -118,7 +139,6 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
   };
 
   const handleAttemptFinalizeForMaster = () => {
-    // Validação de dados de cremação
     if (!removal.cremationDate || !removal.cremationCompany) {
         alert('É obrigatório preencher os Dados de Cremação (Empresa e Data) antes de finalizar. Acesse a aba "Dados Cremação" em "Adicionar/Editar".');
         setIsEditing(true);
@@ -140,7 +160,13 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
   const handleAddItem = () => {
     if (productName && productValue && items.length < 10) {
       const processAndAddItem = (proofString?: string) => {
-        setItems([...items, { id: new Date().toISOString(), name: productName, value: parseFloat(productValue), paymentProof: proofString }]);
+        const newItem: CustomAdditional = {
+            id: new Date().toISOString(),
+            name: productName,
+            value: parseFloat(productValue),
+            paymentProof: proofString
+        };
+        setItems(prevItems => [...prevItems, newItem]);
         setProductName(''); setProductValue(''); setSelectedFile(null);
         const fileInput = document.getElementById('custom-product-file-input') as HTMLInputElement;
         if (fileInput) fileInput.value = '';
@@ -183,10 +209,19 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
             reader.readAsDataURL(selectedFile);
         });
     }
+    
+    // Use local items state as the source of truth for the new list
     const originalItems = removal.customAdditionals || [];
-    const processedItems = isCollective ? items.map(item => !originalItems.some(oi => oi.id === item.id) && proofString ? { ...item, paymentProof: proofString } : item) : items;
+    
+    // Process collective items to add proof if needed
+    const processedItems = isCollective 
+        ? items.map(item => !originalItems.some(oi => oi.id === item.id) && proofString ? { ...item, paymentProof: proofString } : item) 
+        : items;
+    
+    // Determine what was added or removed for history
     const addedItems = processedItems.filter(i => !originalItems.some(oi => oi.id === i.id));
     const removedItems = originalItems.filter(oi => !processedItems.some(i => i.id === oi.id));
+    
     let historyActions: string[] = [];
     if (addedItems.length > 0) {
         const summary = new Map<string, { count: number, hasProof: boolean, value: number }>();
@@ -208,11 +243,26 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
         const itemsSummary = Array.from(summary.entries()).map(([name, data]) => `${data.count}x ${name}`).join(', ');
         historyActions.push(`removeu: ${itemsSummary}`);
     }
-    if (historyActions.length > 0) {
+    
+    // Always update if there are changes in the list
+    const hasChanges = JSON.stringify(originalItems) !== JSON.stringify(processedItems);
+
+    if (hasChanges) {
         const diff = processedItems.reduce((acc, item) => acc + item.value, 0) - originalItems.reduce((acc, item) => acc + item.value, 0);
+        
+        const newHistory = [...removal.history];
+        if (historyActions.length > 0) {
+            newHistory.push({
+                date: new Date().toISOString(),
+                action: `Receptor ${user.name.split(' ')[0]} ${historyActions.join(' e ')}.`,
+                user: user.name,
+            });
+        }
+
         updateRemoval(removal.id, {
-            customAdditionals: processedItems, value: removal.value + diff,
-            history: [...removal.history, { date: new Date().toISOString(), action: `Receptor ${user.name.split(' ')[0]} ${historyActions.join(' e ')}.`, user: user.name }],
+            customAdditionals: processedItems, 
+            value: removal.value + diff,
+            history: newHistory,
         });
     }
     resetAndCloseEdit();
@@ -283,7 +333,48 @@ const ReceptorVendaActions: React.FC<ReceptorVendaActionsProps> = ({
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="space-y-3 p-3 bg-gray-50 rounded-md border"><div className="flex gap-2 items-end"><div className="flex-grow"><label className="text-xs font-medium text-gray-600">Produto</label><input type="text" value={productName} onChange={e => setProductName(e.target.value)} placeholder="Nome do produto" className="w-full px-2 py-1 border rounded-md text-sm" /></div><div className="w-24"><label className="text-xs font-medium text-gray-600">Valor (R$)</label><input type="number" value={productValue} onChange={e => setProductValue(e.target.value)} placeholder="Valor" className="w-full px-2 py-1 border rounded-md text-sm" /></div></div><div><label className="block text-xs font-medium text-gray-600 mb-1"><Upload className="inline h-4 w-4 mr-1" />Anexar Comprovante</label><input id="custom-product-file-input" type="file" accept=".jpg,.jpeg,.pdf" onChange={e => setSelectedFile(e.target.files ? e.target.files[0] : null)} className="w-full text-sm text-gray-500 file:mr-4 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" /></div><button onClick={handleAddItem} disabled={items.length >= 10 || !productName || !productValue} className="w-full px-3 py-1.5 bg-blue-500 text-white rounded-md text-sm flex items-center justify-center gap-1 disabled:opacity-50"><Plus size={16} /> Adicionar Item</button></div>
+              <div className="space-y-3 p-3 bg-gray-50 rounded-md border">
+                <div className="flex gap-2 items-end">
+                    <div className="flex-grow relative">
+                        <label className="text-xs font-medium text-gray-600">Produto</label>
+                        <input 
+                            type="text" 
+                            value={productName} 
+                            onChange={e => {
+                                setProductName(e.target.value);
+                                setShowSuggestions(true);
+                            }} 
+                            placeholder="Nome do produto" 
+                            className="w-full px-2 py-1 border rounded-md text-sm" 
+                        />
+                        {showSuggestions && stockSuggestions.length > 0 && (
+                            <div className="absolute z-50 w-full bg-white border border-gray-300 rounded-md shadow-lg mt-1 max-h-40 overflow-y-auto">
+                                {stockSuggestions.map(item => (
+                                    <div 
+                                        key={item.id} 
+                                        onClick={() => handleSelectProduct(item)}
+                                        className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm flex justify-between"
+                                    >
+                                        <span>{item.name}</span>
+                                        <span className="text-gray-500 text-xs">R$ {item.sellingPrice.toFixed(2)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <div className="w-24">
+                        <label className="text-xs font-medium text-gray-600">Valor (R$)</label>
+                        <input type="number" value={productValue} onChange={e => setProductValue(e.target.value)} placeholder="Valor" className="w-full px-2 py-1 border rounded-md text-sm" />
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1"><Upload className="inline h-4 w-4 mr-1" />Anexar Comprovante</label>
+                    <input id="custom-product-file-input" type="file" accept=".jpg,.jpeg,.pdf" onChange={e => setSelectedFile(e.target.files ? e.target.files[0] : null)} className="w-full text-sm text-gray-500 file:mr-4 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                </div>
+                <button onClick={handleAddItem} disabled={items.length >= 10 || !productName || !productValue} className="w-full px-3 py-1.5 bg-blue-500 text-white rounded-md text-sm flex items-center justify-center gap-1 disabled:opacity-50">
+                    <Plus size={16} /> Adicionar Item
+                </button>
+              </div>
               {items.length > 0 && <div className="space-y-2"><p className="text-sm font-medium">Itens Adicionados:</p><ul className="list-disc list-inside text-sm bg-gray-100 p-3 rounded-md border">{items.map(item => (<li key={item.id} className="flex justify-between items-center py-1"><span>{item.name} - R$ {item.value.toFixed(2)}</span><button onClick={() => handleRemoveItem(item.id)} className="text-red-500 hover:text-red-700"><Trash2 size={14} /></button></li>))}</ul></div>}
             </div>
           ))}

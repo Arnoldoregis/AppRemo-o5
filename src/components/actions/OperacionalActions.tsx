@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Removal } from '../../types';
 import { useRemovals } from '../../context/RemovalContext';
 import { useAuth } from '../../context/AuthContext';
-import { Edit, Save, Send, X, Flame, CheckCircle, AlertTriangle, Gift } from 'lucide-react';
+import { Edit, Save, Send, X, Flame, CheckCircle, AlertTriangle, Gift, CreditCard, Scissors, PawPrint, Heart, Stamp, Minus, Plus } from 'lucide-react';
 import { mockFinanceiroJuniors, mockOperacionais } from '../../data/mock';
 
 interface OperacionalActionsProps {
@@ -25,6 +25,16 @@ const OperacionalActions: React.FC<OperacionalActionsProps> = ({ removal, onClos
 
     // New state for souvenir confirmation
     const [showOperatorSelection, setShowOperatorSelection] = useState(false);
+
+    // New states for Release Checklist
+    const [isReleasing, setIsReleasing] = useState(false);
+    const [productionItems, setProductionItems] = useState({
+        carteirinha: 0,
+        pelinho: 0,
+        patinha: 0,
+        relicario: 0,
+        carimbo: 0
+    });
 
     const uniqueAdditionals = useMemo(() => {
         const allAdditionals: { name: string; quantity: number }[] = [
@@ -151,16 +161,27 @@ const OperacionalActions: React.FC<OperacionalActionsProps> = ({ removal, onClos
         onClose();
     };
 
-    const handleReleaseForCremation = () => {
+    // Handler for Release Checklist
+    const handleConfirmRelease = () => {
         if (!user || !user.name) return;
         const userName = user.name.split(' ')[0];
+
+        const itemsList = Object.entries(productionItems)
+            .filter(([_, qty]) => qty > 0)
+            .map(([key, qty]) => `${qty}x ${key.charAt(0).toUpperCase() + key.slice(1)}`)
+            .join(', ');
+        
+        const actionText = itemsList 
+            ? `Liberado para cremação pelo Operacional ${userName}. Itens a produzir: ${itemsList}.`
+            : `Liberado para cremação pelo Operacional ${userName}.`;
+
         updateRemoval(removal.id, {
             status: 'finalizada',
             history: [
                 ...removal.history,
                 { 
                     date: new Date().toISOString(), 
-                    action: `Liberado para cremação pelo Operacional ${userName}`, 
+                    action: actionText, 
                     user: user.name 
                 }
             ]
@@ -186,6 +207,13 @@ const OperacionalActions: React.FC<OperacionalActionsProps> = ({ removal, onClos
             ],
         });
         onClose();
+    };
+
+    const updateProductionItem = (item: keyof typeof productionItems, delta: number) => {
+        setProductionItems(prev => ({
+            ...prev,
+            [item]: Math.max(0, prev[item] + delta)
+        }));
     };
 
     // JSX Logic
@@ -388,10 +416,67 @@ const OperacionalActions: React.FC<OperacionalActionsProps> = ({ removal, onClos
         }
 
         // This is the individual logic
+        if (isReleasing) {
+            const itemsConfig = [
+                { key: 'carteirinha', label: 'Carteirinha', icon: CreditCard },
+                { key: 'pelinho', label: 'Pelinho', icon: Scissors },
+                { key: 'patinha', label: 'Patinha', icon: PawPrint },
+                { key: 'relicario', label: 'Relicário', icon: Heart },
+                { key: 'carimbo', label: 'Carimbo', icon: Stamp },
+            ];
+
+            return (
+                <div className="w-full space-y-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <h4 className="font-semibold text-gray-800 text-center mb-2">Itens a Produzir</h4>
+                    <div className="space-y-2">
+                        {itemsConfig.map((item) => (
+                            <div key={item.key} className="flex items-center justify-between p-2 bg-white rounded-md shadow-sm">
+                                <div className="flex items-center gap-2">
+                                    <item.icon className="text-gray-500 h-5 w-5" />
+                                    <span className="text-sm font-medium text-gray-700">{item.label}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button 
+                                        onClick={() => updateProductionItem(item.key as keyof typeof productionItems, -1)}
+                                        className="p-1 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600"
+                                    >
+                                        <Minus size={14} />
+                                    </button>
+                                    <span className="w-6 text-center font-bold text-gray-800">
+                                        {productionItems[item.key as keyof typeof productionItems]}
+                                    </span>
+                                    <button 
+                                        onClick={() => updateProductionItem(item.key as keyof typeof productionItems, 1)}
+                                        className="p-1 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600"
+                                    >
+                                        <Plus size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                        <button 
+                            onClick={() => setIsReleasing(false)} 
+                            className="flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400 text-sm font-medium"
+                        >
+                            Retornar
+                        </button>
+                        <button 
+                            onClick={handleConfirmRelease} 
+                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium"
+                        >
+                            Salvar / Enviar Cremação
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div className="flex items-center gap-2">
                 <button 
-                    onClick={handleReleaseForCremation} 
+                    onClick={() => setIsReleasing(true)} 
                     className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2"
                 >
                     <Flame size={16} /> Liberar / Cremar

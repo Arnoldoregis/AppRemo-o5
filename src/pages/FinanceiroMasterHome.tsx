@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useRemovals } from '../context/RemovalContext';
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
-import { Download, Search, Filter } from 'lucide-react';
+import { Download, Search, Filter, PackageMinus } from 'lucide-react';
 import { Removal, LoteFaturamento } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
@@ -14,6 +14,7 @@ import { ptBR } from 'date-fns/locale';
 import MonthlyBatchCard from '../components/cards/MonthlyBatchCard';
 import StockManagement from '../components/master/StockManagement';
 import PricingManagement from '../components/master/PricingManagement';
+import DeductStockModal from '../components/modals/DeductStockModal';
 
 type MasterTab = 'remocao_solicitada' | 'dar_baixa' | 'faturado_mensal' | 'finalizada' | 'estoque' | 'planos';
 
@@ -30,6 +31,7 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
   const [selectedLote, setSelectedLote] = useState<LoteFaturamento | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [finalizadasFilter, setFinalizadasFilter] = useState<'nao_faturado' | 'faturado'>('nao_faturado');
+  const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
 
   useEffect(() => {
     if (selectedRemoval) {
@@ -154,65 +156,31 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
         )
         : baseFinalizadas;
 
-    if (finalizadasFilter === 'nao_faturado') {
-        const naoFaturadoRemovals = searchedFinalizadas.filter(r => r.paymentMethod !== 'faturado');
-        const grouped = naoFaturadoRemovals.reduce((acc, removal) => {
-            const monthYear = format(new Date(removal.createdAt), 'MMMM yyyy', { locale: ptBR });
-            const capitalizedMonthYear = monthYear.charAt(0).toUpperCase() + monthYear.slice(1);
-            if (!acc[capitalizedMonthYear]) {
-                acc[capitalizedMonthYear] = [];
-            }
-            acc[capitalizedMonthYear].push(removal);
-            return acc;
-        }, {} as { [key: string]: Removal[] });
+    // Filtra com base na seleção (Faturado ou Não Faturado)
+    const filteredByPayment = searchedFinalizadas.filter(r => 
+        finalizadasFilter === 'faturado' 
+            ? r.paymentMethod === 'faturado' 
+            : r.paymentMethod !== 'faturado'
+    );
 
-        return Object.entries(grouped).sort(([monthA], [monthB]) => {
-            const dateA = new Date(grouped[monthA][0].createdAt);
-            const dateB = new Date(grouped[monthB][0].createdAt);
-            return dateB.getTime() - dateA.getTime();
-        }).map(([month, removals]) => ({ type: 'month_batch' as const, month, removals }));
-    } else { // 'faturado'
-        const faturadoRemovals = searchedFinalizadas.filter(r => r.paymentMethod === 'faturado');
-        
-        const removalsByMonth: { [month: string]: Removal[] } = {};
-        faturadoRemovals.forEach(r => {
-            const monthYear = format(new Date(r.createdAt), 'MMMM yyyy', { locale: ptBR });
-            const capitalizedMonthYear = monthYear.charAt(0).toUpperCase() + monthYear.slice(1);
-            if (!removalsByMonth[capitalizedMonthYear]) {
-                removalsByMonth[capitalizedMonthYear] = [];
-            }
-            removalsByMonth[capitalizedMonthYear].push(r);
-        });
+    // Agrupa por mês
+    const grouped = filteredByPayment.reduce((acc, removal) => {
+        const monthYear = format(new Date(removal.createdAt), 'MMMM yyyy', { locale: ptBR });
+        const capitalizedMonthYear = monthYear.charAt(0).toUpperCase() + monthYear.slice(1);
+        if (!acc[capitalizedMonthYear]) {
+            acc[capitalizedMonthYear] = [];
+        }
+        acc[capitalizedMonthYear].push(removal);
+        return acc;
+    }, {} as { [key: string]: Removal[] });
 
-        const monthlyLotes = Object.entries(removalsByMonth).map(([month, monthRemovals]) => {
-            const lotesByClinic: { [clinicId: string]: LoteFaturamento } = {};
-            monthRemovals.forEach(r => {
-                if (r.createdById && r.clinicName) {
-                    if (!lotesByClinic[r.createdById]) {
-                        lotesByClinic[r.createdById] = {
-                            id: `${r.createdById}-${month}-finalizado`,
-                            clinicId: r.createdById,
-                            clinicName: r.clinicName,
-                            removals: [],
-                            totalValue: 0,
-                            status: 'concluido'
-                        };
-                    }
-                    lotesByClinic[r.createdById].removals.push(r);
-                    lotesByClinic[r.createdById].totalValue += r.value;
-                }
-            });
-            return { type: 'faturado_batch' as const, month, lotes: Object.values(lotesByClinic) };
-        });
+    // Ordena os meses e retorna no formato esperado
+    return Object.entries(grouped).sort(([monthA], [monthB]) => {
+        const dateA = new Date(grouped[monthA][0].createdAt);
+        const dateB = new Date(grouped[monthB][0].createdAt);
+        return dateB.getTime() - dateA.getTime();
+    }).map(([month, removals]) => ({ type: 'month_batch' as const, month, removals }));
 
-        return monthlyLotes.sort((a, b) => {
-            if (a.lotes.length === 0) return 1;
-            if (b.lotes.length === 0) return -1;
-            const dateA = new Date(a.lotes[0].removals[0].createdAt);
-            const dateB = new Date(b.lotes[0].removals[0].createdAt);
-            return dateB.getTime() - dateA.getTime();
-        });
-    }
   }, [activeTab, removals, searchTerm, user, finalizadasFilter]);
 
   const handleDownload = () => {
@@ -220,13 +188,7 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
         let removalsToExport: Removal[] = [];
         if (finalizadasContent) {
             finalizadasContent.forEach(item => {
-                if (item.type === 'month_batch') {
-                    removalsToExport.push(...item.removals);
-                } else if (item.type === 'faturado_batch') {
-                    item.lotes.forEach(lote => {
-                        removalsToExport.push(...lote.removals);
-                    });
-                }
+                removalsToExport.push(...item.removals);
             });
         }
         exportToExcel(removalsToExport, `historico_master_finalizadas_${finalizadasFilter}`);
@@ -259,12 +221,23 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
             className="w-full pl-10 pr-4 py-2 border rounded-lg" />
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
         </div>
-        <button 
-            onClick={handleDownload}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center"
-        >
-            <Download className="h-5 w-5 mr-2" />Baixar Histórico
-        </button>
+        <div className="flex gap-2">
+            {!isReadOnly && (
+                <button 
+                    onClick={() => setIsDeductStockModalOpen(true)}
+                    className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-orange-700 transition-colors"
+                >
+                    <PackageMinus className="h-5 w-5 mr-2" />
+                    Baixar no Estoque
+                </button>
+            )}
+            <button 
+                onClick={handleDownload}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center"
+            >
+                <Download className="h-5 w-5 mr-2" />Baixar Histórico
+            </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-md">
@@ -326,26 +299,9 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
               
               {finalizadasContent && finalizadasContent.length > 0 ? (
                 <div className="space-y-6">
-                  {finalizadasContent.map(item => {
-                    if (item.type === 'month_batch') {
-                      return <MonthlyBatchCard key={item.month} month={item.month} removals={item.removals} onSelectRemoval={setSelectedRemoval} />
-                    }
-                    if (item.type === 'faturado_batch') {
-                      return (
-                        <div key={item.month} className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
-                          <div className="p-4 bg-gray-50 border-b">
-                            <h3 className="font-bold text-xl text-gray-800">{item.month}</h3>
-                          </div>
-                          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {item.lotes.map(lote => (
-                              <FaturamentoCard key={lote.id} lote={lote} onGerenciar={() => setSelectedLote(lote)} />
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    }
-                    return null;
-                  })}
+                  {finalizadasContent.map(item => (
+                      <MonthlyBatchCard key={item.month} month={item.month} removals={item.removals} onSelectRemoval={setSelectedRemoval} />
+                  ))}
                 </div>
               ) : <p className="text-center text-gray-500 py-12">Nenhuma remoção finalizada encontrada para este filtro.</p>}
             </>
@@ -362,6 +318,10 @@ const FinanceiroMasterHome: React.FC<FinanceiroMasterHomeProps> = ({ isReadOnly 
       </div>
       <RemovalDetailsModal removal={selectedRemoval} onClose={() => setSelectedRemoval(null)} isReadOnly={isReadOnly} viewedRole={viewedRole} />
       <FaturamentoModal lote={selectedLote} onClose={() => setSelectedLote(null)} isReadOnly={isReadOnly} />
+      <DeductStockModal 
+        isOpen={isDeductStockModalOpen}
+        onClose={() => setIsDeductStockModalOpen(false)}
+      />
     </Layout>
   );
 };

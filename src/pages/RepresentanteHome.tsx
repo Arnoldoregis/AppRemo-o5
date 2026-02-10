@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../context/AuthContext';
 import { useRemovals } from '../context/RemovalContext';
-import { Calendar, FileText, Plus, Eye, Edit, Trash2, CheckCircle, Building, List, ChevronUp, ChevronDown, Percent } from 'lucide-react';
+import { Calendar, FileText, Plus, Eye, Edit, Trash2, CheckCircle, Building, List, ChevronUp, ChevronDown, Percent, PackageMinus } from 'lucide-react';
 import { Removal, Visit } from '../types';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
 import ContractCard from '../components/cards/ContractCard';
@@ -14,6 +14,7 @@ import { mockRegisteredClinics } from '../data/mock';
 import CadastrarClinicaModal from '../components/modals/CadastrarClinicaModal';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import DeductStockModal from '../components/modals/DeductStockModal';
 
 interface SolicitadasMonthCardProps {
   month: string;
@@ -149,6 +150,7 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
   const [activeTab, setActiveTab] = useState<'contratos' | 'agenda' | 'concluido' | 'clinicas' | 'solicitadas'>('agenda');
   const [selectedRemoval, setSelectedRemoval] = useState<Removal | null>(null);
   const [isCadastrarModalOpen, setIsCadastrarModalOpen] = useState(false);
+  const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
 
   // State for Agenda de Visitas
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
@@ -289,15 +291,24 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
     if (activeTab === 'contratos') {
       return (
         <div>
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end mb-4 gap-2">
             {!isReadOnly && (
-              <button 
-                onClick={() => navigate('/representante/gerar-contrato')}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center"
-              >
-                <Plus className="h-5 w-5 mr-2" />
-                Gerar Contrato
-              </button>
+                <>
+                    <button 
+                        onClick={() => setIsDeductStockModalOpen(true)}
+                        className="bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-orange-700 transition-colors flex items-center"
+                    >
+                        <PackageMinus className="h-5 w-5 mr-2" />
+                        Baixar no Estoque
+                    </button>
+                    <button 
+                        onClick={() => navigate('/representante/gerar-contrato')}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center"
+                    >
+                        <Plus className="h-5 w-5 mr-2" />
+                        Gerar Contrato
+                    </button>
+                </>
             )}
           </div>
           {representativeRemovals.length > 0 ? (
@@ -316,15 +327,24 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
     if (activeTab === 'clinicas') {
       return (
         <div>
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end mb-4 gap-2">
             {!isReadOnly && (
-              <button 
-                onClick={() => setIsCadastrarModalOpen(true)}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center"
-              >
-                <Plus className="h-5 w-5 mr-2" />
-                Cadastrar Nova Clínica
-              </button>
+                <>
+                    <button 
+                        onClick={() => setIsDeductStockModalOpen(true)}
+                        className="bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-orange-700 transition-colors flex items-center"
+                    >
+                        <PackageMinus className="h-5 w-5 mr-2" />
+                        Baixar no Estoque
+                    </button>
+                    <button 
+                        onClick={() => setIsCadastrarModalOpen(true)}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center"
+                    >
+                        <Plus className="h-5 w-5 mr-2" />
+                        Cadastrar Nova Clínica
+                    </button>
+                </>
             )}
           </div>
           {mockRegisteredClinics.length > 0 ? (
@@ -373,15 +393,24 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
     if (activeTab === 'agenda') {
       return (
         <div>
-            <div className="flex justify-end mb-4">
+            <div className="flex justify-end mb-4 gap-2">
                 {!isReadOnly && (
-                    <button 
-                      onClick={() => { setEditingVisit(null); setIsVisitModalOpen(true); }}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center"
-                    >
-                        <Plus className="h-5 w-5 mr-2" />
-                        Agendar Nova Visita
-                    </button>
+                    <>
+                        <button 
+                            onClick={() => setIsDeductStockModalOpen(true)}
+                            className="bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-orange-700 transition-colors flex items-center"
+                        >
+                            <PackageMinus className="h-5 w-5 mr-2" />
+                            Baixar no Estoque
+                        </button>
+                        <button 
+                        onClick={() => { setEditingVisit(null); setIsVisitModalOpen(true); }}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center"
+                        >
+                            <Plus className="h-5 w-5 mr-2" />
+                            Agendar Nova Visita
+                        </button>
+                    </>
                 )}
             </div>
             {renderVisitsTable(activeVisits)}
@@ -456,6 +485,10 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
             isOpen={isCadastrarModalOpen}
             onClose={() => setIsCadastrarModalOpen(false)}
             onSave={handleSaveClinic}
+        />
+        <DeductStockModal 
+            isOpen={isDeductStockModalOpen}
+            onClose={() => setIsDeductStockModalOpen(false)}
         />
     </Layout>
   );

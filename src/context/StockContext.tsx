@@ -9,6 +9,7 @@ interface StockContextType {
   updateProduct: (id: string, updates: Partial<Omit<StockItem, 'id' | 'createdAt' | 'trackingCode'>>) => void;
   deleteProduct: (id: string) => void;
   deductStockItems: (items: { name: string; quantity: number }[]) => void;
+  deductProductById: (id: string, quantity: number, user: string) => void;
 }
 
 const StockContext = createContext<StockContextType | undefined>(undefined);
@@ -124,12 +125,28 @@ export const StockProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   };
 
+  const deductProductById = (id: string, quantity: number, user: string) => {
+    setStock(prev => prev.map(item => {
+        if (item.id === id) {
+            const newQuantity = item.quantity - quantity;
+            if (newQuantity < 0) {
+                alert(`Atenção: O estoque do produto "${item.name}" ficará negativo!`);
+            }
+            // Aqui você poderia adicionar lógica de log/histórico se necessário
+            console.log(`Usuário ${user} baixou ${quantity} de ${item.name}`);
+            return { ...item, quantity: newQuantity };
+        }
+        return item;
+    }));
+  };
+
   const value = {
     stock,
     addProduct,
     updateProduct,
     deleteProduct,
     deductStockItems,
+    deductProductById,
   };
 
   return <StockContext.Provider value={value}>{children}</StockContext.Provider>;

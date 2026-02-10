@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Removal } from '../../types';
 import { useRemovals } from '../../context/RemovalContext';
 import { useAuth } from '../../context/AuthContext';
-import { Send, Undo, XCircle, AlertTriangle, Loader, FastForward } from 'lucide-react';
+import { Send, Undo, XCircle, AlertTriangle, Loader, FastForward, MessageSquare, Award, Building } from 'lucide-react';
 import { mockDrivers } from '../../data/mock';
 import { geocodeAddress, calculateDistance } from '../../utils/geoUtils';
+import CertificateModal from '../modals/CertificateModal';
+import CremationDataModal from '../modals/CremationDataModal';
 
 interface ReceptorActionsProps {
   removal: Removal;
@@ -16,12 +18,21 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
   const { user } = useAuth();
   const [isDirecting, setIsDirecting] = useState(false);
   const [selectedDriverId, setSelectedDriverId] = useState('');
-  const [isConfirming, setIsConfirming] = useState(false);
+  
+  // Estados de confirmação
+  const [isConfirming, setIsConfirming] = useState(false); // Confirmação de motorista
+  const [isConfirmingPetCeu, setIsConfirmingPetCeu] = useState(false); // Confirmação de Pet Céu
+  
   const [isConfirmingRevert, setIsConfirmingRevert] = useState(false);
   const [isPriority, setIsPriority] = useState(false);
   const [priorityTime, setPriorityTime] = useState('');
   const [suggestedDriverId, setSuggestedDriverId] = useState<string | null>(null);
   const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
+
+  // Estados para Pronto para Entrega (Gerar Certificado / Finalizar)
+  const [isCertificateModalOpen, setIsCertificateModalOpen] = useState(false);
+  const [isCremationDataModalOpen, setIsCremationDataModalOpen] = useState(false);
+  const [isConfirmingDeliveryFinalization, setIsConfirmingDeliveryFinalization] = useState(false);
 
   useEffect(() => {
     if (isDirecting) {
@@ -137,10 +148,34 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
 
   const handleConfirmClick = () => {
     if (!selectedDriverId) {
-      alert('Por favor, selecione um motorista.');
+      alert('Por favor, selecione uma opção.');
       return;
     }
-    setIsConfirming(true);
+
+    if (selectedDriverId === 'pet_ceu') {
+        setIsConfirmingPetCeu(true);
+    } else {
+        setIsConfirming(true);
+    }
+  };
+
+  const handlePetCeuConfirm = () => {
+    if (!user) return;
+
+    // Atualiza para 'concluida' para ir direto para o Operacional (Pendente Individual/Coletivo)
+    updateRemoval(removal.id, {
+        status: 'concluida',
+        assignedDriver: undefined, // Sem motorista pois foi trazido pelo tutor
+        history: [
+            ...removal.history,
+            {
+                date: new Date().toISOString(),
+                action: `Tutor trouxe o pet até a Pet Céu. Recebido pelo Receptor ${user.name.split(' ')[0]}. Encaminhado para o Operacional.`,
+                user: user.name,
+            },
+        ],
+    });
+    onClose();
   };
 
   const handleRevert = () => {
@@ -180,6 +215,177 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
       onClose();
     }
   };
+
+  // Funções para Pronto para Entrega
+  const handleNotifyTutor = () => {
+    if (!user || !removal.tutor.phone) {
+        alert('Número de contato do tutor não encontrado.');
+        return;
+    }
+
+    const tutorName = removal.tutor.name;
+    let message = '';
+
+    if (removal.modality === 'coletivo') {
+        const productNames = removal.customAdditionals?.map(ad => ad.name).join(', ') || 'sua lembrancinha';
+        message = `Olá ${tutorName}, a lembrancinha do seu anjinho (${productNames}) já está pronta para retirada ou entrega. Nosso horário de atendimento para retirada é de segunda a sexta, das 9h às 17h, e sábado, das 8:30h às 11:30h. A unidade de retirada fica na Rua Santa Helena, 51, Centro, Pinhais - CEP 83.324-220. Se quiser optar por entrega via motoboy, o custo é de R$ 30,00. Favor nos acionar respondendo qual opção é melhor. Lembrando que para a entrega temos agendamento, verificar disponibilidade.`;
+    } else { // Individual
+        message = `Olá ${tutorName}, seu anjinho já está pronto para retirada ou entrega. Nosso horário de atendimento para retirada é de segunda a sexta, das 9h às 17h, e sábado, das 8:30h às 11:30h. A unidade de retirada fica na Rua Santa Helena, 51, Centro, Pinhais - CEP 83.324-220. Se quiser optar por entrega via motoboy, o custo é de R$ 30,00. Favor nos acionar respondendo qual opção é melhor. Lembrando que para a entrega temos agendamento, verificar disponibilidade.`;
+    }
+
+    const cleanedPhone = removal.tutor.phone.replace(/\D/g, '');
+    const whatsappUrl = `https://wa.me/55${cleanedPhone}?text=${encodeURIComponent(message)}`;
+
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+
+    updateRemoval(removal.id, {
+        history: [
+            ...removal.history,
+            {
+                date: new Date().toISOString(),
+                action: `Receptor ${user.name.split(' ')[0]} notificou o tutor sobre a retirada/entrega via WhatsApp.`,
+                user: user.name,
+            },
+        ],
+    });
+  };
+
+  const handleGenerateCertificate = () => {
+    if (!removal.cremationDate || !removal.cremationCompany) {
+      setIsCremationDataModalOpen(true);
+    } else {
+      setIsCertificateModalOpen(true);
+    }
+  };
+
+  const handleConfirmCremationData = (data: { date: string; company: 'PETCÈU' | 'SQP' }) => {
+    if (!user) return;
+    const [year, month, day] = data.date.split('-');
+    const formattedDate = `${day}/${month}/${year}`;
+
+    const updates: Partial<Removal> = {};
+    const historyActions: string[] = [];
+
+    if (!removal.cremationDate && data.date) {
+        updates.cremationDate = data.date;
+        historyActions.push(`data de cremação definida para ${formattedDate}`);
+    }
+    if (!removal.cremationCompany && data.company) {
+        updates.cremationCompany = data.company;
+        historyActions.push(`empresa de cremação definida para ${data.company}`);
+    }
+
+    if (historyActions.length > 0) {
+        updateRemoval(removal.id, {
+          ...updates,
+          history: [
+            ...removal.history,
+            {
+              date: new Date().toISOString(),
+              action: `Receptor ${user.name.split(' ')[0]} atualizou dados para certificado: ${historyActions.join(' e ')}.`,
+              user: user.name,
+            },
+          ],
+        });
+    }
+    
+    setIsCremationDataModalOpen(false);
+    setTimeout(() => {
+        setIsCertificateModalOpen(true);
+    }, 100);
+  };
+
+  const handleFinalizeDeliveryForMaster = () => {
+    if (!user) return;
+    updateRemoval(removal.id, {
+        status: 'aguardando_baixa_master',
+        history: [
+            ...removal.history,
+            {
+                date: new Date().toISOString(),
+                action: `Pronto para entrega. Finalizado para Master por Receptor ${user.name.split(' ')[0]}.`,
+                user: user.name,
+            },
+        ],
+    });
+    onClose();
+  };
+
+  // Renderização para Pronto para Entrega
+  if (removal.status === 'pronto_para_entrega') {
+    const tutorNotified = removal.history.some(h => h.action.includes('notificou o tutor'));
+
+    if (isConfirmingDeliveryFinalization) {
+        return (
+            <div className="w-full p-4 bg-yellow-50 rounded-lg border border-yellow-300">
+                <h4 className="font-semibold text-yellow-900 mb-3 text-center">Tem certeza que deseja finalizar e enviar para o Master?</h4>
+                <div className="flex gap-2">
+                    <button onClick={() => setIsConfirmingDeliveryFinalization(false)} className="flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">NÃO</button>
+                    <button onClick={handleFinalizeDeliveryForMaster} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">SIM</button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+                <button
+                    onClick={handleGenerateCertificate}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center gap-2"
+                >
+                    <Award size={16} /> Gerar Certificado
+                </button>
+                <button
+                    onClick={handleNotifyTutor}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+                >
+                    <MessageSquare size={16} /> Avisar Tutor
+                </button>
+                {tutorNotified && (
+                    <button
+                        onClick={() => setIsConfirmingDeliveryFinalization(true)}
+                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2"
+                    >
+                        <Send size={16} /> Finalizar para Master
+                    </button>
+                )}
+            </div>
+            <CremationDataModal
+                isOpen={isCremationDataModalOpen}
+                onClose={() => setIsCremationDataModalOpen(false)}
+                onConfirm={handleConfirmCremationData}
+                removal={removal}
+            />
+            <CertificateModal
+                isOpen={isCertificateModalOpen}
+                onClose={() => setIsCertificateModalOpen(false)}
+                removal={removal}
+            />
+        </>
+    );
+  }
+
+  // Renderização para Confirmação "Trouxe a Pet Céu"
+  if (isConfirmingPetCeu) {
+    return (
+        <div className="w-full p-4 bg-blue-50 rounded-lg border border-blue-300 space-y-4">
+            <div>
+                <h4 className="font-semibold text-blue-900 mb-3 text-center flex items-center justify-center gap-2">
+                    <Building className="h-5 w-5" />
+                    Tutor Trouxe o pet até a Pet Céu?
+                </h4>
+                <p className="text-sm text-blue-800 text-center mb-4">
+                    Ao confirmar, a remoção será enviada diretamente para o Operacional (Pendente).
+                </p>
+            </div>
+            <div className="flex gap-2">
+                <button onClick={() => setIsConfirmingPetCeu(false)} className="flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">NÃO</button>
+                <button onClick={handlePetCeuConfirm} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">SIM</button>
+            </div>
+        </div>
+    );
+  }
 
   if (isConfirming) {
     const selectedDriver = mockDrivers.find(d => d.id === selectedDriverId);
@@ -248,7 +454,9 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
               onChange={(e) => setSelectedDriverId(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">Selecione um motorista</option>
+              <option value="">Selecione uma opção</option>
+              <option value="pet_ceu" className="font-bold text-blue-700">Trouxe a Pet Céu</option>
+              <option disabled>──────────</option>
               {mockDrivers.map(driver => (
                 <option 
                     key={driver.id} 

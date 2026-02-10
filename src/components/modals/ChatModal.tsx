@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from '../../context/ChatContext';
 import { useAuth } from '../../context/AuthContext';
-import { Minus, Send, ArrowLeft, X, Paperclip, Download } from 'lucide-react';
+import { Minus, Send, ArrowLeft, X, Paperclip, Download, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { downloadFile } from '../../utils/downloadFile';
 
@@ -44,6 +44,12 @@ const ChatModal: React.FC = () => {
     }
   };
 
+  const handleEndChat = () => {
+    if (activeConversation && window.confirm('Tem certeza que deseja encerrar este atendimento? O histórico será apagado.')) {
+        closeConversation(activeConversation.id);
+    }
+  };
+
   if (!isChatOpen || !activeConversation) return null;
 
   return (
@@ -56,13 +62,18 @@ const ChatModal: React.FC = () => {
               <ArrowLeft size={20} />
             </button>
           )}
-          <h3 className="font-semibold text-lg">{activeConversation.clientName}</h3>
+          <h3 className="font-semibold text-lg truncate max-w-[150px]">{activeConversation.clientName}</h3>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {user?.role === 'receptor' && (
+             <button onClick={handleEndChat} className="text-red-200 hover:text-red-100 mr-1" title="Encerrar Atendimento">
+                <Trash2 size={20} />
+             </button>
+          )}
           <button onClick={toggleChat} className="text-blue-200 hover:text-white" title="Minimizar">
             <Minus size={20} />
           </button>
-          <button onClick={() => closeConversation(activeConversation.id)} className="text-blue-200 hover:text-white" title="Fechar conversa">
+          <button onClick={toggleChat} className="text-blue-200 hover:text-white" title="Fechar Janela">
             <X size={20} />
           </button>
         </div>

@@ -4,7 +4,7 @@ import { generateMockRemovals } from '../data/mock';
 import { differenceInMinutes, parse, isBefore } from 'date-fns';
 import { useNotifications } from './NotificationContext';
 import { v4 as uuidv4 } from 'uuid';
-import { generateRemovalCode, generateContractNumber, generatePreventiveContractCode } from '../utils/codeGenerator';
+import { generateRemovalCode, generateContractNumber, generatePreventiveContractCode, generateCancellationCode } from '../utils/codeGenerator';
 
 interface RemovalContextType {
   removals: Removal[];
@@ -129,15 +129,40 @@ export const RemovalProvider: React.FC<RemovalProviderProps> = ({ children }) =>
 
   const updateRemoval = (id: string, updates: Partial<Removal>) => {
     let originalRemoval: Removal | undefined;
-    setRemovals(prev =>
-      prev.map(removal => {
+    
+    setRemovals(prev => {
+      // Se a atualização for um cancelamento, precisamos gerar o código de cancelamento
+      // baseado na lista ATUAL (prev)
+      let cancellationCode = '';
+      if (updates.status === 'cancelada') {
+          cancellationCode = generateCancellationCode(prev);
+      }
+
+      return prev.map(removal => {
         if (removal.id === id) {
           originalRemoval = removal;
-          return { ...removal, ...updates };
+          
+          const finalUpdates = { ...updates };
+          
+          // Se estiver cancelando e ainda não estiver cancelada
+          if (updates.status === 'cancelada' && removal.status !== 'cancelada') {
+              finalUpdates.code = cancellationCode;
+              
+              // Adiciona ao histórico a troca de código
+              if (finalUpdates.history) {
+                  const lastHistoryItem = finalUpdates.history[finalUpdates.history.length - 1];
+                  // Modifica a última entrada do histórico (que é a de cancelamento) para mencionar a troca de código
+                  if (lastHistoryItem) {
+                      lastHistoryItem.action += ` (Código alterado de ${removal.code} para ${cancellationCode})`;
+                  }
+              }
+          }
+
+          return { ...removal, ...finalUpdates };
         }
         return removal;
-      })
-    );
+      });
+    });
     
     if (originalRemoval && updates.code && !originalRemoval.code) {
         addNotification(`Código ${updates.code} definido para a remoção.`, { recipientRole: 'receptor' });

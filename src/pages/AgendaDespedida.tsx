@@ -15,8 +15,9 @@ const AgendaDespedida: React.FC = () => {
     const [modalState, setModalState] = useState<{ isOpen: boolean; slotKey: string }>({ isOpen: false, slotKey: '' });
     const navigate = useNavigate();
 
-    // Define quais perfis têm permissão de escrita
-    const writePermissions = ['financeiro_junior', 'operacional', 'financeiro_master'];
+    // Define quais perfis têm permissão de escrita (Adicionar/Remover)
+    // Operacional removido para ter apenas acesso de visualização
+    const writePermissions = ['financeiro_junior', 'financeiro_master', 'receptor'];
     const canWrite = user?.role && writePermissions.includes(user.role);
     const isReadOnly = !canWrite;
 

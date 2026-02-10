@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useRemovals } from '../context/RemovalContext';
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
-import { Calendar, CalendarDays, Download, Search, Plus, Filter, UserCheck, CalendarClock, CheckCircle, Map as MapIcon, List as ListIcon, ShoppingBag, Truck } from 'lucide-react';
+import { Calendar, CalendarDays, Download, Search, Plus, Filter, UserCheck, CalendarClock, CheckCircle, Map as MapIcon, List as ListIcon, ShoppingBag, Truck, PackageMinus } from 'lucide-react';
 import { Removal, RemovalStatus } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
@@ -15,6 +15,8 @@ import { mockDrivers } from '../data/mock';
 import MapComponent from '../components/shared/MapComponent';
 import AwaitingPickupList from '../components/shared/AwaitingPickupList';
 import { format } from 'date-fns';
+import DeductStockModal from '../components/modals/DeductStockModal';
+import ConfirmPickupModal from '../components/modals/ConfirmPickupModal';
 
 interface ReceptorHomeProps {
   isReadOnly?: boolean;
@@ -33,6 +35,8 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
   const [deliveryFilter, setDeliveryFilter] = useState<'entrega_agendada' | 'aguardando_retirada' | 'entregue_retirado' | 'todos'>('entrega_agendada');
   const [selectedDriverId, setSelectedDriverId] = useState<string>('todos');
   const [activeSubTab, setActiveSubTab] = useState<'list' | 'map'>('list');
+  const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
+  const [confirmingPickupRemoval, setConfirmingPickupRemoval] = useState<Removal | null>(null);
 
   useEffect(() => {
     if (selectedRemoval) {
@@ -70,6 +74,25 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
                 {
                     date: new Date().toISOString(),
                     action: `Agendamento de entrega retornado por ${user.name.split(' ')[0]}.`,
+                    user: user.name,
+                },
+            ],
+        });
+    }
+  };
+
+  const handleReturnToStorage = (removal: Removal) => {
+    if (!user || isReadOnly) return;
+    if (window.confirm('Tem certeza que deseja retornar esta remoção para "Pronto para Entrega"?')) {
+        updateRemoval(removal.id, {
+            status: 'pronto_para_entrega',
+            deliveryStatus: 'ready_for_scheduling',
+            deliveryPerson: undefined,
+            history: [
+                ...removal.history,
+                {
+                    date: new Date().toISOString(),
+                    action: `Retirada cancelada/retornada por ${user.name.split(' ')[0]}. Voltou para Pronto para Entrega.`,
                     user: user.name,
                 },
             ],
@@ -131,6 +154,35 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
     });
   };
 
+  const handleConfirmPickup = (data: { pickedUpBy: string; pickupDate: string }) => {
+    if (!user || !confirmingPickupRemoval) return;
+
+    const isCollectiveWithProducts = confirmingPickupRemoval.modality === 'coletivo' &&
+        ((confirmingPickupRemoval.customAdditionals && confirmingPickupRemoval.customAdditionals.length > 0) ||
+         (confirmingPickupRemoval.additionals && confirmingPickupRemoval.additionals.length > 0));
+
+    const nextStatus = isCollectiveWithProducts ? 'aguardando_baixa_master' : 'finalizada';
+    const formattedDate = format(new Date(data.pickupDate + 'T00:00:00'), 'dd/MM/yyyy');
+
+    const historyAction = isCollectiveWithProducts
+        ? `${user.role?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} ${user.name.split(' ')[0]} confirmou a retirada em ${formattedDate} por ${data.pickedUpBy} e encaminhou para baixa do Master.`
+        : `${user.role?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} ${user.name.split(' ')[0]} confirmou a retirada das cinzas em ${formattedDate} por ${data.pickedUpBy}.`;
+
+    updateRemoval(confirmingPickupRemoval.id, {
+      status: nextStatus,
+      deliveryStatus: 'delivered',
+      history: [
+        ...confirmingPickupRemoval.history,
+        {
+          date: new Date(data.pickupDate).toISOString(),
+          action: historyAction,
+          user: user.name,
+        },
+      ],
+    });
+    setConfirmingPickupRemoval(null);
+  };
+
   const scheduledDeliveries = useMemo(() => {
     return removals.filter(r => r.status === 'entrega_agendada');
   }, [removals]);
@@ -149,18 +201,15 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
 
     if (activeTab === 'agenda_entrega') {
         if (deliveryFilter === 'entregue_retirado') {
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
+            // Filtra remoções finalizadas ou aguardando baixa master que tenham histórico de entrega/retirada
             tabFiltered = removals.filter(r => {
                 if (r.status !== 'finalizada' && r.status !== 'aguardando_baixa_master') return false;
                 const finalizationEntry = [...r.history].reverse().find(h => 
-                    h.action.includes('Entrega finalizada por') || 
+                    h.action.includes('Entrega finalizada') || 
+                    h.action.includes('finalizou a entrega') ||
                     h.action.includes('confirmou a retirada')
                 );
-                if (!finalizationEntry) return false;
-                const finalizationDate = new Date(finalizationEntry.date);
-                return finalizationDate >= thirtyDaysAgo;
+                return !!finalizationEntry;
             });
         } else if (deliveryFilter === 'todos') {
             tabFiltered = removals.filter(r => ['aguardando_retirada', 'entrega_agendada'].includes(r.status));
@@ -222,16 +271,30 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
   const renderAgendaContent = () => {
     switch (deliveryFilter) {
       case 'entrega_agendada':
-        return <ScheduledDeliveryList removals={filteredRemovals} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} />;
+        return <ScheduledDeliveryList removals={filteredRemovals} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} onViewDetails={setSelectedRemoval} />;
       case 'aguardando_retirada':
-        return <AwaitingPickupList removals={filteredRemovals} onSelectRemoval={setSelectedRemoval} title="Aguardando Retirada" />;
+        return (
+            <AwaitingPickupList 
+                removals={filteredRemovals} 
+                onSelectRemoval={setSelectedRemoval} 
+                title="Aguardando Retirada"
+                onConfirmPickup={setConfirmingPickupRemoval}
+                onReturnToStorage={handleReturnToStorage}
+            />
+        );
       case 'entregue_retirado':
-        return <AwaitingPickupList removals={filteredRemovals} onSelectRemoval={setSelectedRemoval} title="Entregues/Retirados (Últimos 30 dias)" isFinalizedList />;
+        return <AwaitingPickupList removals={filteredRemovals} onSelectRemoval={setSelectedRemoval} title="Entregues/Retirados (Histórico Completo)" isFinalizedList />;
       case 'todos':
         return (
           <div className="space-y-8">
-            <ScheduledDeliveryList removals={removals.filter(r => r.status === 'entrega_agendada')} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} />
-            <AwaitingPickupList removals={removals.filter(r => r.status === 'aguardando_retirada')} onSelectRemoval={setSelectedRemoval} title="Aguardando Retirada" />
+            <ScheduledDeliveryList removals={removals.filter(r => r.status === 'entrega_agendada')} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} onViewDetails={setSelectedRemoval} />
+            <AwaitingPickupList 
+                removals={removals.filter(r => r.status === 'aguardando_retirada')} 
+                onSelectRemoval={setSelectedRemoval} 
+                title="Aguardando Retirada" 
+                onConfirmPickup={setConfirmingPickupRemoval}
+                onReturnToStorage={handleReturnToStorage}
+            />
           </div>
         );
       default:
@@ -253,6 +316,15 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
         </div>
         <div className="flex items-center gap-2">
+            {!isReadOnly && (
+                <button 
+                    onClick={() => setIsDeductStockModalOpen(true)}
+                    className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-orange-700 transition-colors"
+                >
+                    <PackageMinus className="h-5 w-5 mr-2" />
+                    Baixar no Estoque
+                </button>
+            )}
             <button 
                 onClick={() => setIsRequestModalOpen(true)}
                 disabled={isReadOnly}
@@ -401,6 +473,18 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
         isOpen={isScheduleDeliveryModalOpen} 
         onClose={() => setIsScheduleDeliveryModalOpen(false)} 
       />
+      <DeductStockModal 
+        isOpen={isDeductStockModalOpen}
+        onClose={() => setIsDeductStockModalOpen(false)}
+      />
+      {confirmingPickupRemoval && (
+        <ConfirmPickupModal
+            isOpen={!!confirmingPickupRemoval}
+            onClose={() => setConfirmingPickupRemoval(null)}
+            onConfirm={handleConfirmPickup}
+            petName={confirmingPickupRemoval.pet.name}
+        />
+      )}
     </Layout>
   );
 };

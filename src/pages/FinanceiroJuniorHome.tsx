@@ -4,7 +4,7 @@ import { useRemovals } from '../context/RemovalContext';
 import { useAgenda } from '../context/AgendaContext';
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
-import { CalendarDays, Download, Search, Filter, PackageCheck, Truck, Plus, UserCheck, CalendarClock, CheckCircle, Award } from 'lucide-react';
+import { CalendarDays, Download, Search, Filter, PackageCheck, Truck, Plus, UserCheck, CalendarClock, CheckCircle, Award, PackageMinus } from 'lucide-react';
 import { Removal } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
@@ -17,6 +17,8 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import CertificateModal from '../components/modals/CertificateModal';
 import CremationDataModal from '../components/modals/CremationDataModal';
+import DeductStockModal from '../components/modals/DeductStockModal';
+import ConfirmPickupModal from '../components/modals/ConfirmPickupModal';
 
 interface FinanceiroJuniorHomeProps {
   isReadOnly?: boolean;
@@ -35,11 +37,15 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
   const [deliveryFilter, setDeliveryFilter] = useState<'entrega_agendada' | 'aguardando_retirada' | 'entregue_retirado' | 'todos'>('entrega_agendada');
   const [certificateStatusFilter, setCertificateStatusFilter] = useState<'todos' | 'ag_gerar' | 'gerado'>('todos');
   const [isScheduleDeliveryModalOpen, setIsScheduleDeliveryModalOpen] = useState(false);
+  const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
 
   // Estados para geração de certificado via card
   const [isCertificateModalOpen, setIsCertificateModalOpen] = useState(false);
   const [isCremationDataModalOpen, setIsCremationDataModalOpen] = useState(false);
   const [removalForCertificate, setRemovalForCertificate] = useState<Removal | null>(null);
+
+  // Estado para confirmar retirada
+  const [confirmingPickupRemoval, setConfirmingPickupRemoval] = useState<Removal | null>(null);
 
   useEffect(() => {
     if (selectedRemoval) {
@@ -82,6 +88,25 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
                 {
                     date: new Date().toISOString(),
                     action: `Agendamento de entrega retornado por ${user.name.split(' ')[0]}.`,
+                    user: user.name,
+                },
+            ],
+        });
+    }
+  };
+
+  const handleReturnToStorage = (removal: Removal) => {
+    if (!user || isReadOnly) return;
+    if (window.confirm('Tem certeza que deseja retornar esta remoção para "Pronto para Entrega"?')) {
+        updateRemoval(removal.id, {
+            status: 'pronto_para_entrega',
+            deliveryStatus: 'ready_for_scheduling',
+            deliveryPerson: undefined,
+            history: [
+                ...removal.history,
+                {
+                    date: new Date().toISOString(),
+                    action: `Retirada cancelada/retornada por ${user.name.split(' ')[0]}. Voltou para Pronto para Entrega.`,
                     user: user.name,
                 },
             ],
@@ -141,6 +166,35 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
             },
         ],
     });
+  };
+
+  const handleConfirmPickup = (data: { pickedUpBy: string; pickupDate: string }) => {
+    if (!user || !confirmingPickupRemoval) return;
+
+    const isCollectiveWithProducts = confirmingPickupRemoval.modality === 'coletivo' &&
+        ((confirmingPickupRemoval.customAdditionals && confirmingPickupRemoval.customAdditionals.length > 0) ||
+         (confirmingPickupRemoval.additionals && confirmingPickupRemoval.additionals.length > 0));
+
+    const nextStatus = isCollectiveWithProducts ? 'aguardando_baixa_master' : 'finalizada';
+    const formattedDate = format(new Date(data.pickupDate + 'T00:00:00'), 'dd/MM/yyyy');
+
+    const historyAction = isCollectiveWithProducts
+        ? `${user.role?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} ${user.name.split(' ')[0]} confirmou a retirada em ${formattedDate} por ${data.pickedUpBy} e encaminhou para baixa do Master.`
+        : `${user.role?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} ${user.name.split(' ')[0]} confirmou a retirada das cinzas em ${formattedDate} por ${data.pickedUpBy}.`;
+
+    updateRemoval(confirmingPickupRemoval.id, {
+      status: nextStatus,
+      deliveryStatus: 'delivered',
+      history: [
+        ...confirmingPickupRemoval.history,
+        {
+          date: new Date(data.pickupDate).toISOString(),
+          action: historyAction,
+          user: user.name,
+        },
+      ],
+    });
+    setConfirmingPickupRemoval(null);
   };
 
   const handleQuickCertificate = (e: React.MouseEvent, removal: Removal) => {
@@ -249,7 +303,8 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
                     if (!filterByRole(r)) return false;
 
                     const finalizationEntry = [...r.history].reverse().find(h => 
-                        h.action.includes('Entrega finalizada por') || 
+                        h.action.includes('Entrega finalizada') || 
+                        h.action.includes('finalizou a entrega') ||
                         h.action.includes('confirmou a retirada')
                     );
                     return !!finalizationEntry;
@@ -261,9 +316,6 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
             }
             break;
         case 'gerar_certificados':
-            // Filtra remoções coletivas que foram finalizadas para o master (aguardando_baixa_master) ou já finalizadas
-            // E que já possuem dados de cremação (preenchidos pelo Receptor)
-            // IMPORTANTE: Permite visualizar remoções sem Financeiro Junior atribuído (vindas direto do Receptor)
             baseFiltered = removals.filter(r => 
                 r.modality === 'coletivo' && 
                 (r.status === 'aguardando_baixa_master' || r.status === 'finalizada') && 
@@ -272,10 +324,8 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
             );
 
             if (certificateStatusFilter === 'ag_gerar') {
-                // AG Gerar: Certificado ainda não foi marcado como gerado
                 baseFiltered = baseFiltered.filter(r => !r.certificateGenerated);
             } else if (certificateStatusFilter === 'gerado') {
-                // Gerado: Certificado já foi marcado como gerado
                 baseFiltered = baseFiltered.filter(r => r.certificateGenerated);
             }
             break;
@@ -310,7 +360,8 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
 
     const getFinalizationDate = (removal: Removal): Date | null => {
         const finalizationEntry = [...removal.history].reverse().find(h => 
-            h.action.includes('Entrega finalizada por') || 
+            h.action.includes('Entrega finalizada') || 
+            h.action.includes('finalizou a entrega') ||
             h.action.includes('confirmou a retirada')
         );
         return finalizationEntry ? new Date(finalizationEntry.date) : null;
@@ -373,9 +424,17 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
   const renderAgendaContent = () => {
     switch (deliveryFilter) {
       case 'entrega_agendada':
-        return <ScheduledDeliveryList removals={filteredRemovals} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} />;
+        return <ScheduledDeliveryList removals={filteredRemovals} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} onViewDetails={setSelectedRemoval} />;
       case 'aguardando_retirada':
-        return <AwaitingPickupList removals={filteredRemovals} onSelectRemoval={setSelectedRemoval} title="Aguardando Retirada" />;
+        return (
+            <AwaitingPickupList 
+                removals={filteredRemovals} 
+                onSelectRemoval={setSelectedRemoval} 
+                title="Aguardando Retirada"
+                onConfirmPickup={setConfirmingPickupRemoval}
+                onReturnToStorage={handleReturnToStorage}
+            />
+        );
       case 'entregue_retirado':
         if (!deliveredOrPickedUpGroupedByMonth || deliveredOrPickedUpGroupedByMonth.length === 0) {
             return <p className="text-center text-gray-500 py-12">Nenhuma entrega ou retirada concluída encontrada.</p>;
@@ -395,8 +454,14 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
       case 'todos':
         return (
           <div className="space-y-8">
-            <ScheduledDeliveryList removals={removals.filter(r => r.status === 'entrega_agendada' && r.assignedFinanceiroJunior?.id === user?.id)} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} />
-            <AwaitingPickupList removals={removals.filter(r => r.status === 'aguardando_retirada' && r.assignedFinanceiroJunior?.id === user?.id)} onSelectRemoval={setSelectedRemoval} title="Aguardando Retirada" />
+            <ScheduledDeliveryList removals={removals.filter(r => r.status === 'entrega_agendada' && r.assignedFinanceiroJunior?.id === user?.id)} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} onViewDetails={setSelectedRemoval} />
+            <AwaitingPickupList 
+                removals={removals.filter(r => r.status === 'aguardando_retirada' && r.assignedFinanceiroJunior?.id === user?.id)} 
+                onSelectRemoval={setSelectedRemoval} 
+                title="Aguardando Retirada" 
+                onConfirmPickup={setConfirmingPickupRemoval}
+                onReturnToStorage={handleReturnToStorage}
+            />
           </div>
         );
       default:
@@ -417,6 +482,15 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
         </div>
         <div className="flex items-center gap-2">
+            {!isReadOnly && (
+                <button 
+                    onClick={() => setIsDeductStockModalOpen(true)}
+                    className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-orange-700 transition-colors"
+                >
+                    <PackageMinus className="h-5 w-5 mr-2" />
+                    Baixar no Estoque
+                </button>
+            )}
             <button 
                 onClick={() => navigate('/agenda-despedida')}
                 className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-purple-700 transition-colors"
@@ -555,6 +629,18 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
                 onDownload={handleCertificateDownload}
             />
         </>
+      )}
+      <DeductStockModal 
+        isOpen={isDeductStockModalOpen}
+        onClose={() => setIsDeductStockModalOpen(false)}
+      />
+      {confirmingPickupRemoval && (
+        <ConfirmPickupModal
+            isOpen={!!confirmingPickupRemoval}
+            onClose={() => setConfirmingPickupRemoval(null)}
+            onConfirm={handleConfirmPickup}
+            petName={confirmingPickupRemoval.pet.name}
+        />
       )}
     </Layout>
   );

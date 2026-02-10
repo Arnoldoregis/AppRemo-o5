@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRemovals } from '../context/RemovalContext';
 import Layout from '../components/Layout';
-import { Download, Search, List, Clock, CheckCircle, Package, Truck, Loader, AlertTriangle } from 'lucide-react';
+import { Download, Search, List, Clock, CheckCircle, Package, Truck, Loader, AlertTriangle, PackageMinus } from 'lucide-react';
 import { Removal, RemovalStatus, NextTask } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
@@ -13,6 +13,7 @@ import MonthlyBatchCard from '../components/cards/MonthlyBatchCard';
 import DeliveryCard from '../components/cards/DeliveryCard';
 import DeliveryDetailsModal from '../components/modals/DeliveryDetailsModal';
 import { geocodeAddress, calculateDistance } from '../utils/geoUtils';
+import DeductStockModal from '../components/modals/DeductStockModal';
 
 type MotoristaTab = RemovalStatus | 'concluidas' | 'entregas_pendentes' | 'entregas_a_caminho';
 
@@ -33,6 +34,7 @@ const MotoristaHome: React.FC<MotoristaHomeProps> = ({ isReadOnly = false, viewe
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isSorting, setIsSorting] = useState(false);
   const [displayRemovals, setDisplayRemovals] = useState<Removal[]>([]);
+  const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
 
   const handleCloseModal = (nextTask?: NextTask) => {
     setSelectedRemoval(null);
@@ -220,13 +222,24 @@ const MotoristaHome: React.FC<MotoristaHomeProps> = ({ isReadOnly = false, viewe
           />
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
         </div>
-        <button 
-            onClick={handleDownload}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center"
-        >
-          <Download className="h-5 w-5 mr-2" />
-          Baixar Histórico
-        </button>
+        <div className="flex gap-2">
+            {!isReadOnly && (
+                <button 
+                    onClick={() => setIsDeductStockModalOpen(true)}
+                    className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-orange-700 transition-colors"
+                >
+                    <PackageMinus className="h-5 w-5 mr-2" />
+                    Baixar no Estoque
+                </button>
+            )}
+            <button 
+                onClick={handleDownload}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center"
+            >
+            <Download className="h-5 w-5 mr-2" />
+            Baixar Histórico
+            </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-md">
@@ -254,6 +267,10 @@ const MotoristaHome: React.FC<MotoristaHomeProps> = ({ isReadOnly = false, viewe
         delivery={selectedDelivery} 
         onClose={() => handleCloseModal()} 
         isReadOnly={isReadOnly}
+      />
+      <DeductStockModal 
+        isOpen={isDeductStockModalOpen}
+        onClose={() => setIsDeductStockModalOpen(false)}
       />
     </Layout>
   );

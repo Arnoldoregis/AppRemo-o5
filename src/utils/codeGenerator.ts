@@ -23,7 +23,10 @@ function generateNextCode(latestCode: string | undefined, numberLength: number, 
 }
 
 export function generateRemovalCode(existingRemovals: { code: string }[]): string {
+    // Regex estrito para códigos normais (ex: A000001). 
+    // Ignora códigos que começam com 'Can' ou 'PRE'.
     const codeRegex = /^[A-Z]\d{6}$/;
+    
     const validCodes = existingRemovals
         .map(r => r.code)
         .filter((code): code is string => !!code && codeRegex.test(code));
@@ -51,7 +54,6 @@ export function generatePreventiveContractCode(existingRemovals: { code: string 
     return 'PRE_' + num.toString().padStart(8, '0');
 }
 
-
 export function generateContractNumber(existingRemovals: { contractNumber?: string }[]): string {
     const contractRegex = /^[A-Z]\d{8}$/;
     const validCodes = existingRemovals
@@ -62,4 +64,27 @@ export function generateContractNumber(existingRemovals: { contractNumber?: stri
 
     const latestCode = sortedCodes[sortedCodes.length - 1];
     return generateNextCode(latestCode, 8);
+}
+
+export function generateCancellationCode(existingRemovals: { code: string }[]): string {
+    // Busca códigos que seguem o padrão Can00000001
+    const codeRegex = /^Can\d{8}$/;
+    
+    const validCodes = existingRemovals
+        .map(r => r.code)
+        .filter((code): code is string => !!code && codeRegex.test(code));
+
+    if (validCodes.length === 0) {
+        return 'Can00000001';
+    }
+
+    // Extrai os números, ordena e pega o maior
+    const maxNum = validCodes.reduce((max, code) => {
+        const numStr = code.replace('Can', '');
+        const num = parseInt(numStr, 10);
+        return num > max ? num : max;
+    }, 0);
+
+    const nextNum = maxNum + 1;
+    return 'Can' + nextNum.toString().padStart(8, '0');
 }

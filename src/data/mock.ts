@@ -526,7 +526,71 @@ export const generateMockRemovals = (): Removal[] => {
             assignedFinanceiroJunior: { id: 'func_financeiro_junior_1', name: 'Financeiro Junior 1 (Teste)' },
         },
     ];
+    
+    // Adicionando as remoções coletivas para entrega conforme solicitado
+    const coletivoProntoEntrega: Removal[] = [
+        {
+            id: uuidv4(),
+            code: `COL_PRONTO_1`,
+            contractNumber: `A${(60).toString().padStart(8, '0')}`,
+            createdById: 'pf_123',
+            modality: 'coletivo',
+            tutor: { name: 'Fernanda Lima', cpfOrCnpj: faker.finance.accountNumber(11), phone: '41999887766', email: 'fernanda@example.com' },
+            pet: { name: 'Rex', species: 'cachorro', breed: 'Labrador', gender: 'macho', weight: '21-40kg', causeOfDeath: 'Natural' },
+            removalAddress: curitibaAddresses[5],
+            additionals: [],
+            customAdditionals: [
+                { id: uuidv4(), name: 'PATINHA', value: 150 }
+            ],
+            paymentMethod: 'pix',
+            value: 285.00 + 150.00,
+            observations: 'Tutor quer agendar entrega da patinha.',
+            requestType: 'agora',
+            status: 'pronto_para_entrega',
+            deliveryStatus: 'ready_for_scheduling',
+            history: [
+                { date: faker.date.recent({ days: 5 }).toISOString(), action: 'Solicitação criada', user: 'Fernanda Lima' },
+                { date: faker.date.recent({ days: 2 }).toISOString(), action: 'Lembrancinha produzida', user: 'Operacional' },
+                { date: faker.date.recent({ days: 1 }).toISOString(), action: 'Lembrancinha pronta. Encaminhado para entrega.', user: 'Operacional' },
+            ],
+            createdAt: faker.date.recent({ days: 5 }).toISOString(),
+            realWeight: 35.0,
+            contactedByFinance: true,
+            assignedFinanceiroJunior: { id: 'func_financeiro_junior_1', name: 'Financeiro Junior 1 (Teste)' },
+        },
+        {
+            id: uuidv4(),
+            code: `COL_PRONTO_2`,
+            contractNumber: `A${(61).toString().padStart(8, '0')}`,
+            createdById: 'pf_123',
+            modality: 'coletivo',
+            tutor: { name: 'Marcos Souza', cpfOrCnpj: faker.finance.accountNumber(11), phone: '41988776655', email: 'marcos@example.com' },
+            pet: { name: 'Mel', species: 'gato', breed: 'Siames', gender: 'femea', weight: '0-5kg', causeOfDeath: 'Natural' },
+            removalAddress: curitibaAddresses[6],
+            additionals: [],
+            customAdditionals: [
+                { id: uuidv4(), name: 'PINGENTE EM RESINA', value: 250 }
+            ],
+            paymentMethod: 'credito',
+            value: 207.00 + 250.00,
+            observations: 'Pingente pronto.',
+            requestType: 'agora',
+            status: 'pronto_para_entrega',
+            deliveryStatus: 'ready_for_scheduling',
+            history: [
+                { date: faker.date.recent({ days: 6 }).toISOString(), action: 'Solicitação criada', user: 'Marcos Souza' },
+                { date: faker.date.recent({ days: 3 }).toISOString(), action: 'Lembrancinha produzida', user: 'Operacional' },
+                { date: faker.date.recent({ days: 1 }).toISOString(), action: 'Lembrancinha pronta. Encaminhado para entrega.', user: 'Operacional' },
+            ],
+            createdAt: faker.date.recent({ days: 6 }).toISOString(),
+            realWeight: 4.0,
+            contactedByFinance: true,
+            assignedFinanceiroJunior: { id: 'func_financeiro_junior_1', name: 'Financeiro Junior 1 (Teste)' },
+        }
+    ];
+    
     mockRemovals.push(...prontoParaEntregaRemovals);
+    mockRemovals.push(...coletivoProntoEntrega);
 
     // Gerar 5 remoções individuais finalizadas para o cremador
     for (let i = 0; i < 5; i++) {
@@ -908,5 +972,65 @@ export const generateMockRemovals = (): Removal[] => {
 
       mockRemovals.push(removal);
     }
+
+    // Gerar remoções finalizadas faturadas para teste do Financeiro Master (Solicitado pelo usuário)
+    const finalizedFaturadoRemovals: Removal[] = [
+        {
+            id: uuidv4(),
+            code: `FIN_FAT_01`,
+            contractNumber: `A${(50).toString().padStart(8, '0')}`,
+            createdById: 'clinic_1',
+            clinicName: 'Clínica Vet Top (Teste)',
+            clinicCnpj: '11.222.333/0001-44',
+            modality: 'coletivo',
+            tutor: { name: 'Roberto Carlos', cpfOrCnpj: faker.finance.accountNumber(11), phone: faker.phone.number(), email: faker.internet.email() },
+            pet: { name: 'Pelé', species: 'gato', breed: 'Siames', gender: 'macho', weight: '0-5kg', causeOfDeath: 'Natural' },
+            removalAddress: curitibaAddresses[0],
+            additionals: [],
+            paymentMethod: 'faturado',
+            value: 227.70,
+            observations: 'Finalizada e faturada.',
+            requestType: 'agora',
+            status: 'finalizada',
+            history: [
+                { date: faker.date.past().toISOString(), action: 'Solicitação criada', user: 'Clínica Vet Top' },
+                { date: faker.date.recent().toISOString(), action: 'Finalizado pelo Financeiro Master', user: 'Financeiro Master' }
+            ],
+            createdAt: faker.date.recent({ days: 30 }).toISOString(),
+            assignedFinanceiroMaster: { id: 'func_financeiro_master_1', name: 'Financeiro Master 1 (Teste)' },
+            realWeight: 4.0,
+            cremationCompany: 'PETCÈU',
+            cremationDate: faker.date.recent({ days: 5 }).toISOString().split('T')[0],
+        },
+        {
+            id: uuidv4(),
+            code: `FIN_FAT_02`,
+            contractNumber: `A${(51).toString().padStart(8, '0')}`,
+            createdById: 'clinic_2',
+            clinicName: 'Clínica Amigo Fiel',
+            clinicCnpj: '22.333.444/0001-55',
+            modality: 'individual_prata',
+            tutor: { name: 'Erasmo Carlos', cpfOrCnpj: faker.finance.accountNumber(11), phone: faker.phone.number(), email: faker.internet.email() },
+            pet: { name: 'Wanderléa', species: 'cachorro', breed: 'Poodle', gender: 'femea', weight: '6-10kg', causeOfDeath: 'Idade' },
+            removalAddress: curitibaAddresses[1],
+            additionals: [],
+            paymentMethod: 'faturado',
+            value: 858.00,
+            observations: 'Finalizada e faturada.',
+            requestType: 'agora',
+            status: 'finalizada',
+            history: [
+                { date: faker.date.past().toISOString(), action: 'Solicitação criada', user: 'Clínica Amigo Fiel' },
+                { date: faker.date.recent().toISOString(), action: 'Finalizado pelo Financeiro Master', user: 'Financeiro Master' }
+            ],
+            createdAt: faker.date.recent({ days: 25 }).toISOString(),
+            assignedFinanceiroMaster: { id: 'func_financeiro_master_1', name: 'Financeiro Master 1 (Teste)' },
+            realWeight: 8.0,
+            cremationCompany: 'SQP',
+            cremationDate: faker.date.recent({ days: 10 }).toISOString().split('T')[0],
+        }
+    ];
+    mockRemovals.push(...finalizedFaturadoRemovals);
+
     return mockRemovals;
 };

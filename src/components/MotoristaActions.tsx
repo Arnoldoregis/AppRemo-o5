@@ -1,23 +1,42 @@
 import React, { useState } from 'react';
-import { Removal } from '../types';
-import { useRemovals } from '../context/RemovalContext';
-import { useAuth } from '../context/AuthContext';
-import { Truck, Check, Scale } from 'lucide-react';
+import { Removal, NextTask } from '../../types';
+import { useRemovals } from '../../context/RemovalContext';
+import { useAuth } from '../../context/AuthContext';
+import { Truck, Check, Scale, Undo } from 'lucide-react';
+import NextActionModal from '../modals/NextActionModal';
+import CapturePetPhotoModal from '../modals/CapturePetPhotoModal';
+import CapturePaymentProofModal from '../modals/CapturePaymentProofModal';
 
 interface MotoristaActionsProps {
   removal: Removal;
-  onClose: () => void;
+  onClose: (nextTask?: NextTask) => void;
 }
 
 const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose }) => {
-  const { updateRemoval } = useRemovals();
+  const { removals, updateRemoval } = useRemovals();
   const { user } = useAuth();
+  
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [realWeight, setRealWeight] = useState('');
+  const [isConfirmingWeight, setIsConfirmingWeight] = useState(false);
+  const [step, setStep] = useState<'askObservation' | 'addObservation' | 'addWeight'>('askObservation');
+  const [petObservation, setPetObservation] = useState('');
+  
+  const [showNextActionModal, setShowNextActionModal] = useState(false);
+  const [modalProps, setModalProps] = useState<{ currentRemoval: Removal; removals: Removal[] } | null>(null);
+  const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
+  
+  // Novos estados para o comprovante de pagamento
+  const [isCapturingPaymentProof, setIsCapturingPaymentProof] = useState(false);
+  const [paymentProofData, setPaymentProofData] = useState<string | null>(null);
+
+  const [isReturning, setIsReturning] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
 
   const handleUpdateStatus = (newStatus: Removal['status'], actionText: string) => {
     if (!user) return;
-    updateRemoval(removal.code, {
+
+    const updates: Partial<Removal> = {
       status: newStatus,
       history: [
         ...removal.history,
@@ -27,70 +46,363 @@ const MotoristaActions: React.FC<MotoristaActionsProps> = ({ removal, onClose })
           user: user.name,
         },
       ],
-    });
-    onClose();
+    };
+
+    if (newStatus === 'removido') {
+      updates.isPriority = false;
+      updates.priorityDeadline = undefined;
+      
+      const updatedCurrentRemoval = { ...removal, ...updates };
+      const updatedRemovals = removals.map(r => r.id === removal.id ? updatedCurrentRemoval : r);
+      
+      updateRemoval(removal.id, updates);
+      
+      setModalProps({ currentRemoval: updatedCurrentRemoval, removals: updatedRemovals });
+      setShowNextActionModal(true);
+    } else {
+      updateRemoval(removal.id, updates);
+      onClose();
+    }
+  };
+
+  const handleConfirmRemovalClick = () => {
+    // Se o pagamento for por "Link de Pagamento", pula a etapa de foto do pet e vai direto para removido
+    if (removal.paymentMethod === 'link_pagamento') {
+        handleUpdateStatus('removido', 'removeu o pet no endereço (Pagamento via Link)');
+        return;
+    }
+
+    if (removal.modality.includes('individual')) {
+      setIsCapturingPhoto(true);
+    } else {
+      handleUpdateStatus('removido', 'removeu o pet no endereço');
+    }
+  };
+
+  const handlePhotoAttached = (file: File) => {
+    if (!user) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const photoData = `${e.target?.result as string}||${file.name}`;
+      
+      const updates: Partial<Removal> = {
+        status: 'removido',
+        isPriority: false,
+        priorityDeadline: undefined,
+        petPhotoUrl: photoData,
+        history: [
+          ...removal.history,
+          {
+            date: new Date().toISOString(),
+            action: `Motorista ${user.name.split(' ')[0]} removeu o pet no endereço e anexou uma foto.`,
+            user: user.name,
+          },
+        ],
+      };
+
+      const updatedCurrentRemoval = { ...removal, ...updates };
+      const updatedRemovals = removals.map(r => r.id === removal.id ? updatedCurrentRemoval : r);
+      
+      updateRemoval(removal.id, updates);
+      
+      setModalProps({ currentRemoval: updatedCurrentRemoval, removals: updatedRemovals });
+      setShowNextActionModal(true);
+    };
+    reader.readAsDataURL(file);
+    setIsCapturingPhoto(false);
+  };
+
+  // Função para processar o comprovante de pagamento
+  const handlePaymentProofAttached = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const proofString = `${e.target?.result as string}||${file.name}`;
+      setPaymentProofData(proofString);
+      setIsCapturingPaymentProof(false);
+      // Após capturar o comprovante, inicia o fluxo normal de finalização (peso/obs)
+      setIsFinalizing(true);
+      setStep('askObservation');
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleFinalize = () => {
     if (!user || !realWeight) return;
-    updateRemoval(removal.code, {
+
+    const updates: Partial<Removal> = {
       status: 'concluida',
       realWeight: parseFloat(realWeight),
-      history: [
-        ...removal.history,
-        {
-          date: new Date().toISOString(),
-          action: `Motorista ${user.name.split(' ')[0]} pesou o pet (${realWeight} kg) e finalizou a remoção`,
-          user: user.name,
-        },
-      ],
+    };
+
+    // Se tiver comprovante capturado (apenas Crédito/Débito), adiciona ao update
+    if (paymentProofData) {
+        updates.paymentProof = paymentProofData;
+    }
+
+    let actionText = `Motorista ${user.name.split(' ')[0]} pesou o pet (${realWeight} kg)`;
+
+    if (paymentProofData) {
+        actionText += ` e anexou o comprovante de pagamento`;
+    }
+
+    if (petObservation.trim()) {
+      updates.petCondition = removal.petCondition
+        ? `${removal.petCondition}\n\nObservação do Motorista: ${petObservation.trim()}`
+        : `Observação do Motorista: ${petObservation.trim()}`;
+      actionText += ` com a observação: "${petObservation.trim()}"`;
+    }
+
+    actionText += ` e encaminhou para análise operacional`;
+
+    updates.history = [
+      ...removal.history,
+      {
+        date: new Date().toISOString(),
+        action: actionText,
+        user: user.name,
+      },
+    ];
+
+    updateRemoval(removal.id, updates);
+    onClose();
+  };
+
+  const handleConfirmWeightClick = () => {
+    if (!realWeight || parseFloat(realWeight) <= 0) {
+      alert('Por favor, informe um peso válido.');
+      return;
+    }
+    setIsConfirmingWeight(true);
+  };
+  
+  const resetFinalizationFlow = () => {
+    setIsFinalizing(false);
+    setRealWeight('');
+    setIsConfirmingWeight(false);
+    setStep('askObservation');
+    setPetObservation('');
+    setPaymentProofData(null); // Reseta o comprovante se cancelar
+  };
+
+  const handleStartFinalization = () => {
+    // REGRAS DE NEGÓCIO:
+    // 1. Se for Cartão de Crédito ou Débito -> OBRIGATÓRIO foto do comprovante.
+    // 2. Qualquer outro método -> Segue fluxo normal.
+    
+    const isCardPayment = ['credito', 'debito'].includes(removal.paymentMethod);
+
+    if (isCardPayment && !paymentProofData) {
+        setIsCapturingPaymentProof(true);
+        return; // Interrompe aqui até que a foto seja tirada
+    }
+
+    // Se não for cartão, ou se já tiver a foto do comprovante, segue para pesagem
+    setIsFinalizing(true);
+    setStep('askObservation');
+  };
+
+  const handleReturnToReceiver = () => {
+    if (!user || !returnReason.trim()) {
+        alert('Por favor, informe o motivo do retorno.');
+        return;
+    }
+    updateRemoval(removal.id, {
+        status: 'solicitada',
+        assignedDriver: undefined,
+        history: [
+            ...removal.history,
+            {
+                date: new Date().toISOString(),
+                action: `Motorista ${user.name.split(' ')[0]} retornou a remoção para o receptor.`,
+                reason: returnReason,
+                user: user.name,
+            },
+        ],
     });
     onClose();
   };
-  
-  if (isFinalizing) {
-      return (
-        <div className="flex items-center gap-2">
-            <input
-                type="number"
-                value={realWeight}
-                onChange={(e) => setRealWeight(e.target.value)}
-                placeholder="Peso real (kg)"
-                className="px-3 py-2 border border-gray-300 rounded-md w-32"
+
+  if (showNextActionModal && modalProps) {
+    return (
+        <NextActionModal
+            currentRemoval={modalProps.currentRemoval}
+            removals={modalProps.removals}
+            onClose={onClose}
+        />
+    );
+  }
+
+  if (isReturning) {
+    return (
+        <div className="w-full p-4 bg-yellow-50 rounded-lg border border-yellow-300 space-y-3">
+            <h4 className="font-semibold text-yellow-900 text-center">Informe o Motivo do Retorno</h4>
+            <textarea
+                value={returnReason}
+                onChange={(e) => setReturnReason(e.target.value)}
+                placeholder="Ex: Endereço não localizado, tutor não atendeu, etc."
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                autoFocus
             />
-            <button onClick={handleFinalize} className="px-4 py-2 bg-green-600 text-white rounded-md">Confirmar</button>
-            <button onClick={() => setIsFinalizing(false)} className="px-4 py-2 bg-gray-300 rounded-md">Voltar</button>
+            <div className="flex gap-2 pt-2">
+                <button onClick={() => setIsReturning(false)} className="flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">
+                    Cancelar
+                </button>
+                <button 
+                    onClick={handleReturnToReceiver} 
+                    disabled={!returnReason.trim()}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                    Confirmar Retorno
+                </button>
+            </div>
         </div>
-      );
+    );
+  }
+
+  if (isFinalizing) {
+    if (isConfirmingWeight) {
+        let confirmationMessage = `Tem certeza que deseja confirmar o peso informado de ${realWeight} kg?`;
+        if (petObservation.trim()) {
+            confirmationMessage = `Tem certeza que deseja confirmar o peso informado de ${realWeight} kg e a informação descrita: "${petObservation.trim()}"?`;
+        }
+        return (
+            <div className="w-full p-4 bg-yellow-50 rounded-lg border border-yellow-300">
+                <h4 className="font-semibold text-yellow-900 mb-3 text-center">
+                    {confirmationMessage}
+                </h4>
+                <div className="flex gap-2">
+                    <button onClick={() => setIsConfirmingWeight(false)} className="flex-1 px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">NÃO</button>
+                    <button onClick={handleFinalize} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">SIM</button>
+                </div>
+            </div>
+        );
+    }
+
+    if (step === 'askObservation') {
+        return (
+            <div className="w-full p-4 bg-gray-50 rounded-lg border">
+                <h4 className="font-semibold text-gray-800 mb-3 text-center">O pet tem Observações a serem colocadas?</h4>
+                <div className="flex gap-4 justify-center">
+                    <button onClick={() => setStep('addObservation')} className="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">SIM</button>
+                    <button onClick={() => setStep('addWeight')} className="px-6 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">NÃO</button>
+                </div>
+                <button onClick={resetFinalizationFlow} className="w-full text-center mt-4 text-sm text-gray-500 hover:underline">Cancelar</button>
+            </div>
+        );
+    }
+
+    if (step === 'addObservation') {
+        return (
+            <div className="w-full p-4 bg-gray-50 rounded-lg border space-y-3">
+                <h4 className="font-semibold text-gray-800">Observações do Pet</h4>
+                <textarea
+                    value={petObservation}
+                    onChange={(e) => setPetObservation(e.target.value)}
+                    placeholder="Ex: Tutor quer a coberta Vermelha que veio junto na remoção."
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                    <button onClick={() => setStep('askObservation')} className="px-4 py-2 bg-gray-300 rounded-md text-sm">Voltar</button>
+                    <button onClick={() => setStep('addWeight')} className="px-4 py-2 bg-green-600 text-white rounded-md text-sm">Salvar e Continuar</button>
+                </div>
+            </div>
+        );
+    }
+
+    if (step === 'addWeight') {
+        return (
+            <div className="w-full p-4 bg-gray-50 rounded-lg border space-y-3">
+                <h4 className="font-semibold text-gray-800">Informe o Peso Real</h4>
+                {petObservation.trim() && (
+                    <div className="p-2 bg-blue-50 border-l-4 border-blue-400 text-blue-800 text-sm">
+                        <strong>Observação salva:</strong> {petObservation}
+                    </div>
+                )}
+                {paymentProofData && (
+                    <div className="p-2 bg-green-50 border-l-4 border-green-400 text-green-800 text-sm flex items-center gap-2">
+                        <Check size={16} />
+                        <strong>Comprovante de pagamento anexado.</strong>
+                    </div>
+                )}
+                <div className="flex items-center gap-2">
+                    <input
+                        type="number"
+                        value={realWeight}
+                        onChange={(e) => setRealWeight(e.target.value)}
+                        placeholder="Peso real (kg)"
+                        className="px-3 py-2 border border-gray-300 rounded-md w-32"
+                        autoFocus
+                    />
+                    <button onClick={handleConfirmWeightClick} className="px-4 py-2 bg-green-600 text-white rounded-md">Confirmar Peso</button>
+                    <button onClick={() => setStep('askObservation')} className="px-4 py-2 bg-gray-300 rounded-md">Voltar</button>
+                </div>
+            </div>
+        );
+    }
   }
 
   return (
-    <div className="flex items-center gap-2">
-      {removal.status === 'em_andamento' && (
-        <button
-          onClick={() => handleUpdateStatus('a_caminho', 'iniciou o deslocamento')}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md flex items-center gap-2"
-        >
-          <Truck size={16} /> Iniciar Deslocamento
-        </button>
-      )}
-      {removal.status === 'a_caminho' && (
-        <button
-          onClick={() => handleUpdateStatus('removido', 'removeu o pet no endereço')}
-          className="px-4 py-2 bg-purple-600 text-white rounded-md flex items-center gap-2"
-        >
-          <Check size={16} /> Confirmar Remoção
-        </button>
-      )}
-      {removal.status === 'removido' && (
-        <button
-          onClick={() => setIsFinalizing(true)}
-          className="px-4 py-2 bg-green-600 text-white rounded-md flex items-center gap-2"
-        >
-          <Scale size={16} /> Finalizar (Pesar Pet)
-        </button>
-      )}
-    </div>
+    <>
+      <div className="flex items-center gap-2">
+        {removal.status === 'em_andamento' && (
+          <>
+            <button
+              onClick={() => setIsReturning(true)}
+              className="px-4 py-2 bg-yellow-500 text-white rounded-md flex items-center gap-2"
+            >
+              <Undo size={16} /> Voltar
+            </button>
+            <button
+              onClick={() => handleUpdateStatus('a_caminho', 'iniciou o deslocamento')}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md flex items-center gap-2"
+            >
+              <Truck size={16} /> Iniciar Deslocamento
+            </button>
+          </>
+        )}
+        {removal.status === 'a_caminho' && (
+          <>
+            <button
+              onClick={() => setIsReturning(true)}
+              className="px-4 py-2 bg-yellow-500 text-white rounded-md flex items-center gap-2"
+            >
+              <Undo size={16} /> Voltar
+            </button>
+            <button
+              onClick={handleConfirmRemovalClick}
+              className="px-4 py-2 bg-purple-600 text-white rounded-md flex items-center gap-2"
+            >
+              <Check size={16} /> Confirmar Remoção
+            </button>
+          </>
+        )}
+        {removal.status === 'removido' && (
+          <button
+            onClick={handleStartFinalization}
+            className="px-4 py-2 bg-green-600 text-white rounded-md flex items-center gap-2"
+          >
+            <Scale size={16} /> Finalizar (Pesar Pet)
+          </button>
+        )}
+      </div>
+      
+      <CapturePetPhotoModal
+        isOpen={isCapturingPhoto}
+        onClose={() => setIsCapturingPhoto(false)}
+        onPhotoAttached={handlePhotoAttached}
+        petName={removal.pet.name}
+      />
+
+      <CapturePaymentProofModal
+        isOpen={isCapturingPaymentProof}
+        onClose={() => setIsCapturingPaymentProof(false)}
+        onPhotoAttached={handlePaymentProofAttached}
+        paymentMethod={removal.paymentMethod}
+      />
+    </>
   );
 };
 

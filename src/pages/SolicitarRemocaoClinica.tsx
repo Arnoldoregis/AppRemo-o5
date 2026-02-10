@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRemovals } from '../context/RemovalContext';
 import { usePricing } from '../context/PricingContext';
+import Layout from '../components/Layout';
 import { Upload, Plus, Minus, Building2, Search, AlertTriangle } from 'lucide-react';
 import { Additional, Removal, Address } from '../types';
 import { adicionaisDisponiveis } from '../data/pricing';
@@ -346,16 +347,8 @@ const SolicitarRemocaoClinica: React.FC = () => {
 
   return (
     <>
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <h1 className="text-xl font-semibold text-gray-900">Solicitar Remoção (Clínica)</h1>
-            <button onClick={() => navigate('/')} className="text-sm text-blue-600 hover:underline">Página Inicial</button>
-          </div>
-        </div>
-      </header>
-      <main className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+    <Layout title="Solicitar Remoção (Clínica)">
+      <div className="max-w-4xl mx-auto">
         <div className="bg-white rounded-lg shadow-md p-8">
           <form onSubmit={handleSubmit} className="space-y-8">
             <div>
@@ -513,7 +506,7 @@ const SolicitarRemocaoClinica: React.FC = () => {
             {/* Pagamento */}
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Forma de Pagamento *</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {paymentOptions.map((p) => (
                   <label key={p.value} className="relative cursor-pointer">
                     <input type="radio" name="formaPagamento" value={p.value} checked={formData.formaPagamento === p.value} onChange={handleInputChange} className="sr-only" required />
@@ -581,8 +574,8 @@ const SolicitarRemocaoClinica: React.FC = () => {
             <div className="flex justify-end space-x-4 pt-6"><button type="button" onClick={() => navigate('/')} className="px-6 py-2 border rounded-md">Cancelar</button><button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Solicitar</button></div>
           </form>
         </div>
-      </main>
-    </div>
+      </div>
+    </Layout>
     {showEmergencyConfirmModal && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">

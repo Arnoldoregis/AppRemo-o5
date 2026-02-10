@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { LogOut, Home, Menu, ArrowLeft } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 import ChatWidget from './ChatWidget';
 import ChatModal from './modals/ChatModal';
@@ -16,6 +16,7 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children, title }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { role: currentViewRole } = useParams<{ role: string }>();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -31,6 +32,8 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
       navigate('/clinica');
     } else if (user?.userType === 'funcionario') {
       navigate(`/funcionario/${user.role}`);
+    } else {
+      navigate('/');
     }
   };
 
@@ -40,7 +43,14 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
     }
   };
 
-  const showChat = user?.userType === 'pessoa_fisica' || user?.userType === 'clinica' || user?.role === 'receptor';
+  // Verifica se é uma das páginas públicas de solicitação
+  const isPublicRequestPage = ['/solicitar-remocao', '/solicitar-remocao-clinica'].includes(location.pathname);
+
+  // Mostra o chat se:
+  // 1. Usuário logado é PF ou Clínica
+  // 2. Usuário logado é Receptor
+  // 3. Estamos em uma página pública de solicitação (para visitantes)
+  const showChat = user?.userType === 'pessoa_fisica' || user?.userType === 'clinica' || user?.role === 'receptor' || isPublicRequestPage;
 
   const isViewingAnotherDashboard = user?.role && currentViewRole && user.role !== currentViewRole;
   
@@ -78,7 +88,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
               <h1 className="text-base md:text-xl font-semibold text-gray-900">{title}</h1>
             </div>
             <div className="flex items-center space-x-4">
-              {user && (
+              {user ? (
                 <>
                   <NotificationBell />
                   <span className="text-sm text-gray-600 hidden sm:inline">
@@ -99,6 +109,15 @@ const Layout: React.FC<LayoutProps> = ({ children, title }) => {
                     <LogOut className="h-5 w-5" />
                   </button>
                 </>
+              ) : (
+                // Botão Home para visitantes
+                <button
+                    onClick={() => navigate('/')}
+                    className="p-2 text-gray-600 hover:text-gray-900 transition-colors"
+                    title="Página Inicial"
+                >
+                    <Home className="h-5 w-5" />
+                </button>
               )}
             </div>
           </div>

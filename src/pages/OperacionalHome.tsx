@@ -3,11 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { useRemovals } from '../context/RemovalContext';
 import { useAgenda } from '../context/AgendaContext';
 import Layout from '../components/Layout';
-import { Search, Download, List, Package, CalendarDays, Flame, HeartHandshake, PackagePlus, ClipboardCheck } from 'lucide-react';
+import { Search, Download, List, Package, CalendarDays, Flame, HeartHandshake, PackagePlus, ClipboardCheck, PackageMinus } from 'lucide-react';
 import { Removal } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
 import { exportToExcel } from '../utils/exportToExcel';
+import DeductStockModal from '../components/modals/DeductStockModal';
+import { useAuth } from '../context/AuthContext';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import FarewellBatchCard from '../components/cards/FarewellBatchCard';
 
 interface OperacionalHomeProps {
     isReadOnly?: boolean;
@@ -17,10 +22,12 @@ interface OperacionalHomeProps {
 const OperacionalHome: React.FC<OperacionalHomeProps> = ({ isReadOnly = false, viewedRole = 'operacional' }) => {
     const { removals } = useRemovals();
     const { schedule } = useAgenda();
+    const { user } = useAuth();
     const navigate = useNavigate();
     const [selectedRemoval, setSelectedRemoval] = useState<Removal | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState<'pendentes' | 'coletivos' | 'aguardando_liberacao' | 'com_despedida' | 'coletivo_lembrancinha' | 'lembrancinha_feita'>('pendentes');
+    const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
 
     useEffect(() => {
         if (selectedRemoval) {
@@ -73,6 +80,55 @@ const OperacionalHome: React.FC<OperacionalHomeProps> = ({ isReadOnly = false, v
         return baseRemovals;
     }, [removals, activeTab, searchTerm, schedule]);
 
+    const farewellGroups = useMemo(() => {
+        if (activeTab !== 'com_despedida') return [];
+        
+        // Helper para encontrar a chave do slot para um código de remoção
+        const findSlotKey = (code: string) => {
+            return Object.entries(schedule).find(([_, r]) => r.code === code)?.[0];
+        };
+
+        const groups: Record<string, Removal[]> = {};
+
+        filteredRemovals.forEach(r => {
+            const slotKey = findSlotKey(r.code);
+            if (slotKey) {
+                if (!groups[slotKey]) groups[slotKey] = [];
+                groups[slotKey].push(r);
+            }
+        });
+
+        // Converte para array e ordena
+        return Object.entries(groups).map(([key, items]) => {
+            // Formato da chave: YYYY-MM-DD-TIME
+            const datePart = key.substring(0, 10); // YYYY-MM-DD
+            const timePart = key.substring(11); // Restante é o horário ou "ENCAIXE..."
+            
+            const dateObj = new Date(datePart + 'T00:00:00');
+            
+            let sortTime = 0;
+            if (timePart.includes(':')) {
+                const [h, m] = timePart.split(':').map(Number);
+                sortTime = h * 60 + m;
+            } else {
+                sortTime = 24 * 60; // Joga "Encaixe" para o final do dia na ordenação
+            }
+            
+            const sortTimestamp = dateObj.getTime() + sortTime * 60000;
+            
+            const formattedDate = format(dateObj, "dd/MM/yyyy", { locale: ptBR });
+            const label = `${formattedDate} - ${timePart.replace(':', 'h')}`;
+
+            return {
+                id: key,
+                label,
+                sortTimestamp,
+                items
+            };
+        }).sort((a, b) => a.sortTimestamp - b.sortTimestamp);
+
+    }, [activeTab, filteredRemovals, schedule]);
+
     const handleDownload = () => {
         exportToExcel(filteredRemovals, `historico_operacional_${activeTab}`);
     };
@@ -85,6 +141,39 @@ const OperacionalHome: React.FC<OperacionalHomeProps> = ({ isReadOnly = false, v
         { id: 'coletivo_lembrancinha' as const, label: 'Coletivo com Lembrancinha', icon: PackagePlus },
         { id: 'lembrancinha_feita' as const, label: 'Lembrancinha Feita', icon: ClipboardCheck },
     ];
+
+    const renderContent = () => {
+        if (activeTab === 'com_despedida') {
+            if (farewellGroups.length > 0) {
+                return (
+                    <div className="space-y-6">
+                        {farewellGroups.map(group => (
+                            <FarewellBatchCard 
+                                key={group.id} 
+                                label={group.label} 
+                                removals={group.items} 
+                                onSelectRemoval={setSelectedRemoval} 
+                            />
+                        ))}
+                    </div>
+                );
+            } else {
+                return <p className="text-center text-gray-500 py-12">Nenhuma despedida agendada encontrada.</p>;
+            }
+        }
+
+        if (filteredRemovals.length > 0) {
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredRemovals.map(removal => 
+                        <RemovalCard key={removal.code} removal={removal} onClick={() => setSelectedRemoval(removal)} />
+                    )}
+                </div>
+            );
+        }
+
+        return <p className="text-center text-gray-500 py-12">Nenhuma remoção nesta categoria.</p>;
+    };
 
     return (
         <Layout title="Dashboard Operacional">
@@ -100,6 +189,15 @@ const OperacionalHome: React.FC<OperacionalHomeProps> = ({ isReadOnly = false, v
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                 </div>
                 <div className="flex items-center gap-2">
+                    {!isReadOnly && (
+                        <button 
+                            onClick={() => setIsDeductStockModalOpen(true)}
+                            className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-orange-700 transition-colors"
+                        >
+                            <PackageMinus className="h-5 w-5 mr-2" />
+                            Baixar no Estoque
+                        </button>
+                    )}
                     <button 
                         onClick={() => navigate('/painel-cremador')}
                         className="bg-orange-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-orange-700 transition-colors"
@@ -140,18 +238,14 @@ const OperacionalHome: React.FC<OperacionalHomeProps> = ({ isReadOnly = false, v
                     </nav>
                 </div>
                 <div className="p-6">
-                    {filteredRemovals.length > 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {filteredRemovals.map(removal => 
-                                <RemovalCard key={removal.code} removal={removal} onClick={() => setSelectedRemoval(removal)} />
-                            )}
-                        </div>
-                    ) : (
-                        <p className="text-center text-gray-500 py-12">Nenhuma remoção nesta categoria.</p>
-                    )}
+                    {renderContent()}
                 </div>
             </div>
             <RemovalDetailsModal removal={selectedRemoval} onClose={() => setSelectedRemoval(null)} isReadOnly={isReadOnly} viewedRole={viewedRole} />
+            <DeductStockModal 
+                isOpen={isDeductStockModalOpen}
+                onClose={() => setIsDeductStockModalOpen(false)}
+            />
         </Layout>
     );
 };

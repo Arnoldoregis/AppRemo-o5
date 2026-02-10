@@ -3,10 +3,11 @@ import { Removal, Address, StockItem } from '../../types';
 import { useRemovals } from '../../context/RemovalContext';
 import { useAuth } from '../../context/AuthContext';
 import { useStock } from '../../context/StockContext';
-import { X, Search, UserCheck, CalendarClock, ArrowLeft, Calendar, AlertTriangle, Dog, User, Hash, MapPin, Package, Truck, Phone } from 'lucide-react';
+import { X, Search, UserCheck, CalendarClock, ArrowLeft, Calendar, AlertTriangle, Dog, User, Hash, MapPin, Package, Truck, Phone, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import { mockDrivers } from '../../data/mock';
 import { adicionaisDisponiveis } from '../../data/pricing';
+import RemovalDetailsModal from '../RemovalDetailsModal';
 
 interface ScheduleDeliveryModalProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
   const [isSchedulingDateFor, setIsSchedulingDateFor] = useState<Removal | null>(null);
   const [confirmingDelivery, setConfirmingDelivery] = useState<Removal | null>(null);
   const [confirmingPickup, setConfirmingPickup] = useState<Removal | null>(null);
+  const [viewDetailsRemoval, setViewDetailsRemoval] = useState<Removal | null>(null);
   
   const [deliveryDate, setDeliveryDate] = useState('');
   const [editableAddress, setEditableAddress] = useState<Address | null>(null);
@@ -477,7 +479,16 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
               <div className="text-center space-y-6">
                 <h3 className="text-lg font-semibold">Ações para: <span className="text-blue-600">{selectedRemoval.pet.name}</span></h3>
                 <p className="text-sm text-gray-600">Código: {selectedRemoval.code}</p>
+                
                 <div className="flex flex-col gap-4 w-full max-w-xs">
+                  <button 
+                    onClick={() => setViewDetailsRemoval(selectedRemoval)}
+                    className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Eye size={20} />
+                    Ver Detalhes / Contato
+                  </button>
+
                   <button onClick={() => setConfirmingPickup(selectedRemoval)} className="w-full px-4 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"><UserCheck size={20} />Tutor Virá Buscar</button>
                   <button onClick={() => setIsSchedulingDateFor(selectedRemoval)} className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"><CalendarClock size={20} />Agendar Entrega</button>
                 </div>
@@ -486,6 +497,14 @@ const ScheduleDeliveryModal: React.FC<ScheduleDeliveryModalProps> = ({ isOpen, o
           </div>
         </div>
       </div>
+      {viewDetailsRemoval && (
+        <RemovalDetailsModal
+            removal={viewDetailsRemoval}
+            onClose={() => setViewDetailsRemoval(null)}
+            isReadOnly={false}
+            hideEditActions={true} // Oculta o botão de editar produtos neste contexto
+        />
+      )}
     </div>
   );
 };
