@@ -134,7 +134,9 @@ export interface Removal {
   };
   scheduledDeliveryDate?: string;
   deliveryItems?: string[];
-  deliveryPerson?: string;
+  deliveryPerson?: string; // Quem entregou ou "Tutor (Retirada na Unidade)"
+  deliveredTo?: string; // Quem recebeu ou retirou
+  actualDeliveryDate?: string; // Data real da entrega/retirada
   isPriority?: boolean;
   priorityDeadline?: string;
   emergencyFee?: number;
@@ -155,6 +157,7 @@ export interface Removal {
   };
   deliveryStatus?: DeliveryStatus;
   petPhotoUrl?: string;
+  signedContractUrl?: string; // URL do contrato assinado pelo cliente
 }
 
 export interface Additional {
@@ -229,6 +232,7 @@ export interface CremationBatch {
   startedAt?: string;
   finishedAt?: string;
   items: CremationBatchItem[];
+  operatorName?: string;
 }
 
 export type StockCategory = 'material_venda' | 'material_escritorio' | 'material_limpeza' | 'sob_encomenda';

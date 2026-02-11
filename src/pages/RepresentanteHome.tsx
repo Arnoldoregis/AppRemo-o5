@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../context/AuthContext';
 import { useRemovals } from '../context/RemovalContext';
-import { Calendar, FileText, Plus, Eye, Edit, Trash2, CheckCircle, Building, List, ChevronUp, ChevronDown, Percent, PackageMinus } from 'lucide-react';
+import { Calendar, FileText, Plus, Eye, Edit, Trash2, CheckCircle, Building, List, ChevronUp, ChevronDown, Percent, PackageMinus, Filter, FileCheck, AlertCircle } from 'lucide-react';
 import { Removal, Visit } from '../types';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
 import ContractCard from '../components/cards/ContractCard';
@@ -137,13 +137,60 @@ const SolicitadasMonthCard: React.FC<SolicitadasMonthCardProps> = ({ month, remo
   );
 };
 
+interface ContractsBatchProps {
+  month: string;
+  removals: Removal[];
+  onSelectRemoval: (removal: Removal) => void;
+}
+
+const ContractsBatch: React.FC<ContractsBatchProps> = ({ month, removals, onSelectRemoval }) => {
+  const [isOpen, setIsOpen] = useState(true);
+  const totalValue = removals.reduce((sum, r) => sum + r.value, 0);
+
+  return (
+    <div className="bg-white rounded-lg shadow-md border border-gray-200 mb-6">
+      <div 
+        className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-50"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <div className="flex items-center gap-4">
+          <Calendar className="h-6 w-6 text-blue-600" />
+          <div>
+            <h3 className="font-bold text-lg text-gray-800 capitalize">{month}</h3>
+            <p className="text-sm text-gray-500">{removals.length} contratos</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <p className="text-sm text-gray-500">Valor Total</p>
+            <p className="font-bold text-green-600">R$ {totalValue.toFixed(2)}</p>
+          </div>
+          <button className="p-2 rounded-full hover:bg-gray-200">
+            {isOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+          </button>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="p-4 border-t border-gray-200 bg-gray-50">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {removals.map(removal => (
+                <ContractCard key={removal.id} removal={removal} onClick={() => onSelectRemoval(removal)} />
+              ))}
+            </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 interface RepresentanteHomeProps {
   isReadOnly?: boolean;
   viewedRole?: string;
 }
 
-const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = false }) => {
+const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = false, viewedRole = 'representante' }) => {
   const { user } = useAuth();
   const { removals } = useRemovals();
   const navigate = useNavigate();
@@ -151,6 +198,19 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
   const [selectedRemoval, setSelectedRemoval] = useState<Removal | null>(null);
   const [isCadastrarModalOpen, setIsCadastrarModalOpen] = useState(false);
   const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
+  
+  // Filter state for Contracts
+  const [contractFilter, setContractFilter] = useState<'todos' | 'sem_assinar' | 'assinado'>('todos');
+
+  // Sync selectedRemoval with global state to reflect updates (like attaching contract)
+  useEffect(() => {
+    if (selectedRemoval) {
+      const updatedVersion = removals.find(r => r.id === selectedRemoval.id);
+      if (updatedVersion) {
+        setSelectedRemoval(updatedVersion);
+      }
+    }
+  }, [removals, selectedRemoval?.id]);
 
   // State for Agenda de Visitas
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
@@ -172,6 +232,34 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
     return removals.filter(r => r.representativeId === user.id);
   }, [removals, user]);
   
+  const filteredContracts = useMemo(() => {
+    let filtered = representativeRemovals;
+    if (contractFilter === 'sem_assinar') {
+        filtered = filtered.filter(r => !r.signedContractUrl);
+    } else if (contractFilter === 'assinado') {
+        filtered = filtered.filter(r => !!r.signedContractUrl);
+    }
+    return filtered;
+  }, [representativeRemovals, contractFilter]);
+
+  const contractsByMonth = useMemo(() => {
+    const grouped = filteredContracts.reduce((acc, removal) => {
+        const monthYear = format(new Date(removal.createdAt), 'MMMM yyyy', { locale: ptBR });
+        const capitalizedMonthYear = monthYear.charAt(0).toUpperCase() + monthYear.slice(1);
+        if (!acc[capitalizedMonthYear]) {
+            acc[capitalizedMonthYear] = [];
+        }
+        acc[capitalizedMonthYear].push(removal);
+        return acc;
+    }, {} as { [key: string]: Removal[] });
+
+    return Object.entries(grouped).sort(([monthA], [monthB]) => {
+        const dateA = new Date(grouped[monthA][0].createdAt);
+        const dateB = new Date(grouped[monthB][0].createdAt);
+        return dateB.getTime() - dateA.getTime();
+    });
+  }, [filteredContracts]);
+
   const removalsByMonth = useMemo(() => {
     if (activeTab !== 'solicitadas') return null;
 
@@ -291,34 +379,67 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
     if (activeTab === 'contratos') {
       return (
         <div>
-          <div className="flex justify-end mb-4 gap-2">
-            {!isReadOnly && (
-                <>
-                    <button 
-                        onClick={() => setIsDeductStockModalOpen(true)}
-                        className="bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-orange-700 transition-colors flex items-center"
-                    >
-                        <PackageMinus className="h-5 w-5 mr-2" />
-                        Baixar no Estoque
-                    </button>
-                    <button 
-                        onClick={() => navigate('/representante/gerar-contrato')}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center"
-                    >
-                        <Plus className="h-5 w-5 mr-2" />
-                        Gerar Contrato
-                    </button>
-                </>
-            )}
+          <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+            {/* Filter Buttons */}
+            <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-lg">
+                <button 
+                    onClick={() => setContractFilter('todos')}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${contractFilter === 'todos' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                    <List size={16} />
+                    Todos
+                </button>
+                <button 
+                    onClick={() => setContractFilter('sem_assinar')}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${contractFilter === 'sem_assinar' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                    <AlertCircle size={16} />
+                    Sem Assinar
+                </button>
+                <button 
+                    onClick={() => setContractFilter('assinado')}
+                    className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${contractFilter === 'assinado' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                    <FileCheck size={16} />
+                    Assinado
+                </button>
+            </div>
+
+            <div className="flex gap-2">
+                {!isReadOnly && (
+                    <>
+                        <button 
+                            onClick={() => setIsDeductStockModalOpen(true)}
+                            className="bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-orange-700 transition-colors flex items-center"
+                        >
+                            <PackageMinus className="h-5 w-5 mr-2" />
+                            Baixar no Estoque
+                        </button>
+                        <button 
+                            onClick={() => navigate('/representante/gerar-contrato')}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center"
+                        >
+                            <Plus className="h-5 w-5 mr-2" />
+                            Gerar Contrato
+                        </button>
+                    </>
+                )}
+            </div>
           </div>
-          {representativeRemovals.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {representativeRemovals.map(removal => (
-                <ContractCard key={removal.id} removal={removal} onClick={() => setSelectedRemoval(removal)} />
+
+          {contractsByMonth.length > 0 ? (
+            <div className="space-y-6">
+              {contractsByMonth.map(([month, monthRemovals]) => (
+                <ContractsBatch 
+                    key={month} 
+                    month={month} 
+                    removals={monthRemovals} 
+                    onSelectRemoval={setSelectedRemoval}
+                />
               ))}
             </div>
           ) : (
-            <p className="text-center text-gray-500 py-12">Nenhum contrato gerado por você ainda.</p>
+            <p className="text-center text-gray-500 py-12">Nenhum contrato encontrado para este filtro.</p>
           )}
         </div>
       );
@@ -460,7 +581,12 @@ const RepresentanteHome: React.FC<RepresentanteHomeProps> = ({ isReadOnly = fals
                 {renderContent()}
             </div>
         </div>
-        <RemovalDetailsModal removal={selectedRemoval} onClose={() => setSelectedRemoval(null)} isReadOnly={isReadOnly} />
+        <RemovalDetailsModal 
+            removal={selectedRemoval} 
+            onClose={() => setSelectedRemoval(null)} 
+            isReadOnly={isReadOnly} 
+            viewedRole={viewedRole}
+        />
         
         <ScheduleVisitModal
             isOpen={isVisitModalOpen || !!editingVisit}

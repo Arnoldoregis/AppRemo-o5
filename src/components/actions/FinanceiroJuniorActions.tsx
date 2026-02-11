@@ -9,6 +9,7 @@ import { CheckCircle, Edit, Upload, Plus, Trash2, Save, Flame, Minus, Undo, Buil
 import { collectiveAdditionals } from '../../data/pricing';
 import CertificateModal from '../modals/CertificateModal';
 import CremationDataModal from '../modals/CremationDataModal';
+import EditCertificateInfoModal from '../modals/EditCertificateInfoModal';
 
 interface FinanceiroJuniorActionsProps {
   removal: Removal;
@@ -51,8 +52,11 @@ const FinanceiroJuniorActions: React.FC<FinanceiroJuniorActionsProps> = ({
   const [certificateObs, setCertificateObs] = useState('');
   const [isConfirmingFinalization, setIsConfirmingFinalization] = useState(false);
   const [isConfirmingDeliveryFinalization, setIsConfirmingDeliveryFinalization] = useState(false);
+  
   const [isCertificateModalOpen, setIsCertificateModalOpen] = useState(false);
   const [isCremationDataModalOpen, setIsCremationDataModalOpen] = useState(false);
+  const [isEditCertInfoModalOpen, setIsEditCertInfoModalOpen] = useState(false);
+  const [tempRemovalForCert, setTempRemovalForCert] = useState<Removal | null>(null);
   
   // State para controle do dropdown de sugestões
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -281,8 +285,6 @@ const FinanceiroJuniorActions: React.FC<FinanceiroJuniorActionsProps> = ({
         historyActions.push(`removeu: ${itemsSummary}`);
     }
     
-    // Always update if there are changes in the list, even if history logic misses something (e.g. reordering)
-    // or if we just want to ensure the state is consistent.
     const hasChanges = JSON.stringify(originalItems) !== JSON.stringify(processedItems);
 
     if (hasChanges) {
@@ -384,11 +386,15 @@ const FinanceiroJuniorActions: React.FC<FinanceiroJuniorActionsProps> = ({
   };
 
   const handleGenerateCertificate = () => {
-    if (!removal.cremationDate || !removal.cremationCompany) {
+    // Sempre abre o modal de edição de dados primeiro, para garantir que o usuário verifique/edite
+    // Se não tiver dados de cremação, o modal de dados de cremação abrirá primeiro
+    if (!removal.cremationCompany) {
+      alert('Por favor, defina a empresa de cremação (PETCÈU ou SQP) antes de gerar o certificado.');
       setIsCremationDataModalOpen(true);
-    } else {
-      setIsCertificateModalOpen(true);
+      return;
     }
+    // Abre o modal de edição de dados do certificado
+    setIsEditCertInfoModalOpen(true);
   };
 
   const handleConfirmCremationData = (data: { date: string; company: 'PETCÈU' | 'SQP' }) => {
@@ -423,9 +429,33 @@ const FinanceiroJuniorActions: React.FC<FinanceiroJuniorActionsProps> = ({
     }
     
     setIsCremationDataModalOpen(false);
+    // After setting company, open the edit info modal
     setTimeout(() => {
-        setIsCertificateModalOpen(true);
+        setIsEditCertInfoModalOpen(true);
     }, 100);
+  };
+
+  const handleCertInfoConfirmed = (data: { tutorName: string; petName: string; cremationDate: string }) => {
+      const updatedRemoval = { 
+          ...removal, 
+          tutor: { ...removal.tutor, name: data.tutorName }, 
+          pet: { ...removal.pet, name: data.petName }, 
+          cremationDate: data.cremationDate 
+      };
+      
+      // Update removal if data changed
+      if (data.tutorName !== removal.tutor.name || data.petName !== removal.pet.name || data.cremationDate !== removal.cremationDate) {
+          updateRemoval(removal.id, {
+              tutor: updatedRemoval.tutor,
+              pet: updatedRemoval.pet,
+              cremationDate: updatedRemoval.cremationDate
+          });
+      }
+      
+      setTempRemovalForCert(updatedRemoval);
+      setIsEditCertInfoModalOpen(false);
+      // Only open certificate preview AFTER confirming data
+      setIsCertificateModalOpen(true);
   };
 
   // Handle 'Pronto para Entrega' tab
@@ -447,14 +477,6 @@ const FinanceiroJuniorActions: React.FC<FinanceiroJuniorActionsProps> = ({
     return (
         <>
             <div className="flex items-center gap-2 flex-wrap justify-end">
-                {!hideEditActions && (
-                    <button
-                        onClick={handleEditClick}
-                        className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 flex items-center gap-2"
-                    >
-                        <Edit size={16} /> Adicionar/Editar Produtos
-                    </button>
-                )}
                 <button
                     onClick={handleGenerateCertificate}
                     className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center gap-2"
@@ -482,10 +504,16 @@ const FinanceiroJuniorActions: React.FC<FinanceiroJuniorActionsProps> = ({
                 onConfirm={handleConfirmCremationData}
                 removal={removal}
             />
+            <EditCertificateInfoModal
+                isOpen={isEditCertInfoModalOpen}
+                onClose={() => setIsEditCertInfoModalOpen(false)}
+                onConfirm={handleCertInfoConfirmed}
+                removal={removal}
+            />
             <CertificateModal
                 isOpen={isCertificateModalOpen}
                 onClose={() => setIsCertificateModalOpen(false)}
-                removal={removal}
+                removal={tempRemovalForCert || removal}
             />
         </>
     );
@@ -517,10 +545,16 @@ const FinanceiroJuniorActions: React.FC<FinanceiroJuniorActionsProps> = ({
                 onConfirm={handleConfirmCremationData}
                 removal={removal}
             />
+            <EditCertificateInfoModal
+                isOpen={isEditCertInfoModalOpen}
+                onClose={() => setIsEditCertInfoModalOpen(false)}
+                onConfirm={handleCertInfoConfirmed}
+                removal={removal}
+            />
             <CertificateModal
                 isOpen={isCertificateModalOpen}
                 onClose={() => setIsCertificateModalOpen(false)}
-                removal={removal}
+                removal={tempRemovalForCert || removal}
             />
         </>
     );
@@ -528,8 +562,10 @@ const FinanceiroJuniorActions: React.FC<FinanceiroJuniorActionsProps> = ({
 
   // Handle 'Pendentes' tabs (status: aguardando_financeiro_junior)
   if (removal.status === 'aguardando_financeiro_junior') {
+    // ... existing edit logic ...
     if (isEditing) {
-      return (
+        // ... same as before ...
+        return (
         <div className="w-full h-full flex flex-col">
           <div className="flex-shrink-0 border-b">
             <button onClick={() => setActiveEditTab('add')} className={`px-4 py-2 text-sm font-medium ${activeEditTab === 'add' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500 hover:text-gray-600'}`}>Adicionar Produtos</button>

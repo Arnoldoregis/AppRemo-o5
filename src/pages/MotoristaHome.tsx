@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useRemovals } from '../context/RemovalContext';
 import Layout from '../components/Layout';
-import { Download, Search, List, Clock, CheckCircle, Package, Truck, Loader, AlertTriangle, PackageMinus } from 'lucide-react';
+import { Download, Search, List, Clock, CheckCircle, Package, Truck, Loader, AlertTriangle, PackageMinus, MapPin } from 'lucide-react';
 import { Removal, RemovalStatus, NextTask } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
@@ -35,17 +35,25 @@ const MotoristaHome: React.FC<MotoristaHomeProps> = ({ isReadOnly = false, viewe
   const [isSorting, setIsSorting] = useState(false);
   const [displayRemovals, setDisplayRemovals] = useState<Removal[]>([]);
   const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
+  
+  // New state for auto-sort toggle
+  const [isAutoSortEnabled, setIsAutoSortEnabled] = useState(false);
 
   const handleCloseModal = (nextTask?: NextTask) => {
-    setSelectedRemoval(null);
-    setSelectedDelivery(null);
     if (nextTask) {
-        // A 'taskType' property helps differentiate
-        if (nextTask.taskType === 'delivery') {
-            setSelectedDelivery(nextTask);
-        } else {
-            setSelectedRemoval(nextTask);
-        }
+        setSelectedRemoval(null);
+        setSelectedDelivery(null);
+        
+        setTimeout(() => {
+            if (nextTask.taskType === 'delivery') {
+                setSelectedDelivery(nextTask);
+            } else {
+                setSelectedRemoval(nextTask);
+            }
+        }, 50);
+    } else {
+        setSelectedRemoval(null);
+        setSelectedDelivery(null);
     }
   };
 
@@ -79,42 +87,83 @@ const MotoristaHome: React.FC<MotoristaHomeProps> = ({ isReadOnly = false, viewe
 
     if (searchTerm) {
         const lowerCaseSearch = searchTerm.toLowerCase();
-        return sourceData.filter(r => 
+        sourceData = sourceData.filter(r => 
             r.tutor.name.toLowerCase().includes(lowerCaseSearch) ||
             r.pet.name.toLowerCase().includes(lowerCaseSearch) ||
             r.code.toLowerCase().includes(lowerCaseSearch)
         );
     }
-    return sourceData;
+
+    // Ordenação Padrão: Prioridade primeiro, depois por data (mais antigo primeiro - FIFO)
+    return sourceData.sort((a, b) => {
+        // 1. Prioridade
+        if (a.isPriority && !b.isPriority) return -1;
+        if (!a.isPriority && b.isPriority) return 1;
+        
+        // 2. Data (FIFO)
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
   }, [activeTab, driverRemovals, driverDeliveries, searchTerm]);
 
+  // Effect to handle sorting automatically if enabled
   useEffect(() => {
-    const sortRemovals = async () => {
-      if (!location || !['em_andamento', 'a_caminho'].includes(activeTab)) {
-        setDisplayRemovals(removalsForCurrentTab);
-        setIsSorting(false);
-        return;
-      }
+    const processList = async () => {
+        // Only sort if enabled and in relevant tabs
+        if (isAutoSortEnabled && ['em_andamento', 'a_caminho'].includes(activeTab) && location && removalsForCurrentTab.length > 0) {
+            setIsSorting(true);
+            try {
+                const removalsWithDistance = [];
+                for (const removal of removalsForCurrentTab) {
+                    const removalCoords = await geocodeAddress(removal.removalAddress);
+                    // Small delay to prevent UI freezing and API rate limits
+                    await new Promise(resolve => setTimeout(resolve, 50)); 
+                    
+                    const distance = removalCoords ? calculateDistance(location, removalCoords) : Infinity;
+                    removalsWithDistance.push({ ...removal, distance });
+                }
 
-      setIsSorting(true);
+                // Mantém prioridade no topo, depois ordena por distância
+                const priority = removalsWithDistance.filter(r => r.isPriority).sort((a, b) => a.distance - b.distance);
+                const normal = removalsWithDistance.filter(r => !r.isPriority).sort((a, b) => a.distance - b.distance);
 
-      const removalsWithDistance = [];
-      for (const removal of removalsForCurrentTab) {
-        const removalCoords = await geocodeAddress(removal.removalAddress);
-        await new Promise(resolve => setTimeout(resolve, 1100)); 
-        const distance = removalCoords ? calculateDistance(location, removalCoords) : Infinity;
-        removalsWithDistance.push({ ...removal, distance });
-      }
-
-      const priority = removalsWithDistance.filter(r => r.isPriority).sort((a, b) => a.distance - b.distance);
-      const normal = removalsWithDistance.filter(r => !r.isPriority).sort((a, b) => a.distance - b.distance);
-
-      setDisplayRemovals([...priority, ...normal]);
-      setIsSorting(false);
+                setDisplayRemovals([...priority, ...normal]);
+            } catch (error) {
+                console.error("Erro ao ordenar automaticamente:", error);
+                setDisplayRemovals(removalsForCurrentTab);
+            } finally {
+                setIsSorting(false);
+            }
+        } else {
+            // If disabled or not in relevant tab, just show the list as is (already sorted by priority/date)
+            setDisplayRemovals(removalsForCurrentTab);
+        }
     };
 
-    sortRemovals();
-  }, [location, removalsForCurrentTab, activeTab]);
+    processList();
+  }, [removalsForCurrentTab, isAutoSortEnabled, activeTab, location]);
+
+  // Manual optimization function (still available if auto-sort is off)
+  const handleOptimizeRoute = async () => {
+    if (!location || displayRemovals.length === 0) return;
+    setIsSorting(true);
+    try {
+        const removalsWithDistance = [];
+        for (const removal of displayRemovals) {
+            const removalCoords = await geocodeAddress(removal.removalAddress);
+            await new Promise(resolve => setTimeout(resolve, 100)); 
+            const distance = removalCoords ? calculateDistance(location, removalCoords) : Infinity;
+            removalsWithDistance.push({ ...removal, distance });
+        }
+        // Mantém prioridade no topo, depois ordena por distância
+        const priority = removalsWithDistance.filter(r => r.isPriority).sort((a, b) => a.distance - b.distance);
+        const normal = removalsWithDistance.filter(r => !r.isPriority).sort((a, b) => a.distance - b.distance);
+        setDisplayRemovals([...priority, ...normal]);
+    } catch (error) {
+        console.error("Erro ao otimizar rota:", error);
+    } finally {
+        setIsSorting(false);
+    }
+  };
 
   const concluidasGroupedByMonth = useMemo(() => {
     if (activeTab !== 'concluidas') return null;
@@ -177,8 +226,13 @@ const MotoristaHome: React.FC<MotoristaHomeProps> = ({ isReadOnly = false, viewe
     if (['entregas_pendentes', 'entregas_a_caminho'].includes(activeTab)) {
         return displayRemovals.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {displayRemovals.map(delivery => 
-                    <DeliveryCard key={delivery.id} delivery={delivery} onClick={() => setSelectedDelivery(delivery)} />
+                {displayRemovals.map((delivery, index) => 
+                    <DeliveryCard 
+                        key={delivery.id} 
+                        delivery={delivery} 
+                        onClick={() => setSelectedDelivery(delivery)} 
+                        orderNumber={index + 1}
+                    />
                 )}
             </div>
         ) : <p className="text-center text-gray-500 py-12">Nenhuma entrega nesta categoria.</p>;
@@ -202,8 +256,14 @@ const MotoristaHome: React.FC<MotoristaHomeProps> = ({ isReadOnly = false, viewe
     return displayRemovals.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {displayRemovals.map((removal, index) => {
-                const orderNumber = ['em_andamento', 'a_caminho'].includes(activeTab) ? index + 1 : undefined;
-                return <RemovalCard key={removal.id} removal={removal} onClick={() => setSelectedRemoval(removal)} orderNumber={orderNumber} />;
+                return (
+                    <RemovalCard 
+                        key={removal.id} 
+                        removal={removal} 
+                        onClick={() => setSelectedRemoval(removal)} 
+                        orderNumber={index + 1}
+                    />
+                );
             })}
         </div>
     ) : <p className="text-center text-gray-500 py-12">Nenhuma solicitação nesta categoria.</p>;
@@ -222,7 +282,40 @@ const MotoristaHome: React.FC<MotoristaHomeProps> = ({ isReadOnly = false, viewe
           />
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
+            {/* Toggle Switch for Auto Sort - Only visible in 'em_andamento' */}
+            {activeTab === 'em_andamento' && (
+                <div className="flex items-center bg-white border rounded-lg px-3 py-2 mr-2 shadow-sm">
+                    <label className="flex items-center cursor-pointer gap-2">
+                        <div className="relative">
+                            <input 
+                                type="checkbox" 
+                                className="sr-only" 
+                                checked={isAutoSortEnabled} 
+                                onChange={(e) => setIsAutoSortEnabled(e.target.checked)} 
+                            />
+                            <div className={`block w-10 h-6 rounded-full transition-colors ${isAutoSortEnabled ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${isAutoSortEnabled ? 'transform translate-x-4' : ''}`}></div>
+                        </div>
+                        <span className="text-sm font-medium text-gray-700 select-none">
+                            Ordenar por Proximidade
+                        </span>
+                    </label>
+                </div>
+            )}
+
+            {/* Manual Optimize Button - Only visible if auto-sort is OFF and in relevant tabs */}
+            {['em_andamento', 'a_caminho'].includes(activeTab) && !isReadOnly && !isAutoSortEnabled && displayRemovals.length > 1 && (
+                <button
+                    onClick={handleOptimizeRoute}
+                    disabled={isSorting}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-green-700 transition-colors disabled:opacity-50"
+                >
+                    {isSorting ? <Loader className="animate-spin h-5 w-5 mr-2" /> : <MapPin className="h-5 w-5 mr-2" />}
+                    Otimizar Rota
+                </button>
+            )}
+
             {!isReadOnly && (
                 <button 
                     onClick={() => setIsDeductStockModalOpen(true)}

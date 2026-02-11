@@ -1,7 +1,7 @@
 import { faker } from '@faker-js/faker';
-import { Removal, RemovalStatus, User, Address } from '../types';
+import { Removal, RemovalStatus, User, Address, CremationBatch } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { format } from 'date-fns';
+import { format, addDays, subDays } from 'date-fns';
 
 export const mockDrivers = [
   { id: 'motorista_1', name: 'Fernando', email: 'motorista@gmail.com', phone: '41984938295' },
@@ -39,6 +39,55 @@ const curitibaAddresses: Address[] = [
   { street: 'Rua Professor Pedro Viriato Parigot de Souza', number: '600', neighborhood: 'Mossunguê', city: 'Curitiba', state: 'PR', cep: '81200-100' },
   { street: 'Avenida Presidente Kennedy', number: '4121', neighborhood: 'Portão', city: 'Curitiba', state: 'PR', cep: '80610-010' },
 ];
+
+export const generateMockCremationBatches = (): CremationBatch[] => {
+    const batches: CremationBatch[] = [];
+    const baseDate = new Date();
+
+    // Batch 1 - Last week (Completed)
+    const date1 = subDays(baseDate, 7);
+    batches.push({
+        id: 'LOTE-MOCK-001',
+        createdAt: date1.toISOString(),
+        startedAt: new Date(date1.getTime() + 3600000).toISOString(), // +1 hour
+        finishedAt: new Date(date1.getTime() + 10800000).toISOString(), // +3 hours
+        operatorName: 'Fernando (Operacional)',
+        items: [
+            { removalCode: 'MOCK0010', petName: 'Rex', weight: 12.5, position: 'frente' },
+            { removalCode: 'MOCK0011', petName: 'Mel', weight: 8.0, position: 'fundo' }
+        ]
+    });
+
+    // Batch 2 - 3 days ago (Completed)
+    const date2 = subDays(baseDate, 3);
+    batches.push({
+        id: 'LOTE-MOCK-002',
+        createdAt: date2.toISOString(),
+        startedAt: new Date(date2.getTime() + 3600000).toISOString(),
+        finishedAt: new Date(date2.getTime() + 10800000).toISOString(),
+        operatorName: 'Rafael (Operacional)',
+        items: [
+            { removalCode: 'MOCK0012', petName: 'Luna', weight: 5.2, position: 'meio' },
+            { removalCode: 'MOCK0013', petName: 'Thor', weight: 25.0, position: 'frente' },
+            { removalCode: 'MOCK0014', petName: 'Bob', weight: 10.0, position: 'fundo' }
+        ]
+    });
+
+    // Batch 3 - Yesterday (Completed)
+    const date3 = subDays(baseDate, 1);
+    batches.push({
+        id: 'LOTE-MOCK-003',
+        createdAt: date3.toISOString(),
+        startedAt: new Date(date3.getTime() + 3600000).toISOString(),
+        finishedAt: new Date(date3.getTime() + 10800000).toISOString(),
+        operatorName: 'Fernando (Operacional)',
+        items: [
+            { removalCode: 'MOCK0015', petName: 'Nina', weight: 4.0, position: 'frente' }
+        ]
+    });
+
+    return batches;
+};
 
 export const generateMockRemovals = (): Removal[] => {
     const mockRemovals: Removal[] = [];
@@ -1031,6 +1080,145 @@ export const generateMockRemovals = (): Removal[] => {
         }
     ];
     mockRemovals.push(...finalizedFaturadoRemovals);
+
+    // Scheduled Deliveries Mock Data (3 days)
+    const today = new Date();
+    const tomorrow = addDays(today, 1);
+    const dayAfterTomorrow = addDays(today, 2);
+    const threeDaysFromNow = addDays(today, 3);
+
+    const scheduledDeliveriesMock: Removal[] = [
+        // Day 1 Batch
+        {
+            id: uuidv4(),
+            code: `ENTREGA_D1_1`,
+            contractNumber: `A${(70).toString().padStart(8, '0')}`,
+            createdById: 'pf_123',
+            modality: 'individual_prata',
+            tutor: { name: 'Ana Beatriz', cpfOrCnpj: faker.finance.accountNumber(11), phone: '41999991111', email: 'ana@example.com' },
+            pet: { name: 'Mel', species: 'cachorro', breed: 'Poodle', gender: 'femea', weight: '6-10kg', causeOfDeath: 'Natural' },
+            removalAddress: curitibaAddresses[0],
+            deliveryAddress: curitibaAddresses[0],
+            additionals: [],
+            paymentMethod: 'pix',
+            value: 780.00,
+            observations: 'Entregar na portaria.',
+            requestType: 'agora',
+            status: 'entrega_agendada',
+            scheduledDeliveryDate: format(tomorrow, 'yyyy-MM-dd'),
+            deliveryPerson: 'Fernando',
+            deliveryItems: ['Urna Padrão - P', 'Certificado'],
+            history: [],
+            createdAt: faker.date.recent({ days: 5 }).toISOString(),
+            realWeight: 8.0,
+            contactedByFinance: true,
+            deliveryStatus: 'scheduled'
+        },
+        {
+            id: uuidv4(),
+            code: `ENTREGA_D1_2`,
+            contractNumber: `A${(71).toString().padStart(8, '0')}`,
+            createdById: 'pf_123',
+            modality: 'individual_ouro',
+            tutor: { name: 'Carlos Silva', cpfOrCnpj: faker.finance.accountNumber(11), phone: '41999992222', email: 'carlos@example.com' },
+            pet: { name: 'Thor', species: 'cachorro', breed: 'Bulldog', gender: 'macho', weight: '11-20kg', causeOfDeath: 'Doença' },
+            removalAddress: curitibaAddresses[1],
+            deliveryAddress: curitibaAddresses[1],
+            additionals: [],
+            paymentMethod: 'credito',
+            value: 999.00,
+            observations: 'Ligar antes de chegar.',
+            requestType: 'agora',
+            status: 'entrega_agendada',
+            scheduledDeliveryDate: format(tomorrow, 'yyyy-MM-dd'),
+            deliveryPerson: 'Fernando',
+            deliveryItems: ['Urna Padrão - M', 'Patinha em Resina', 'Certificado'],
+            history: [],
+            createdAt: faker.date.recent({ days: 6 }).toISOString(),
+            realWeight: 15.0,
+            contactedByFinance: true,
+            deliveryStatus: 'scheduled'
+        },
+        // Day 2 Batch
+        {
+            id: uuidv4(),
+            code: `ENTREGA_D2_1`,
+            contractNumber: `A${(72).toString().padStart(8, '0')}`,
+            createdById: 'pf_123',
+            modality: 'individual_prata',
+            tutor: { name: 'Beatriz Costa', cpfOrCnpj: faker.finance.accountNumber(11), phone: '41999993333', email: 'bia@example.com' },
+            pet: { name: 'Luna', species: 'gato', breed: 'Siamês', gender: 'femea', weight: '0-5kg', causeOfDeath: 'Natural' },
+            removalAddress: curitibaAddresses[2],
+            deliveryAddress: curitibaAddresses[2],
+            additionals: [],
+            paymentMethod: 'debito',
+            value: 480.00,
+            observations: '',
+            requestType: 'agora',
+            status: 'entrega_agendada',
+            scheduledDeliveryDate: format(dayAfterTomorrow, 'yyyy-MM-dd'),
+            deliveryPerson: 'Mariana Lima',
+            deliveryItems: ['Urna Padrão - P', 'Certificado'],
+            history: [],
+            createdAt: faker.date.recent({ days: 4 }).toISOString(),
+            realWeight: 4.0,
+            contactedByFinance: true,
+            deliveryStatus: 'scheduled'
+        },
+        // Day 3 Batch
+        {
+            id: uuidv4(),
+            code: `ENTREGA_D3_1`,
+            contractNumber: `A${(73).toString().padStart(8, '0')}`,
+            createdById: 'pf_123',
+            modality: 'individual_ouro',
+            tutor: { name: 'Daniel Oliveira', cpfOrCnpj: faker.finance.accountNumber(11), phone: '41999994444', email: 'daniel@example.com' },
+            pet: { name: 'Max', species: 'cachorro', breed: 'Labrador', gender: 'macho', weight: '21-40kg', causeOfDeath: 'Idade' },
+            removalAddress: curitibaAddresses[3],
+            deliveryAddress: curitibaAddresses[3],
+            additionals: [],
+            paymentMethod: 'pix',
+            value: 1100.00,
+            observations: 'Cuidado com o cão bravo no portão.',
+            requestType: 'agora',
+            status: 'entrega_agendada',
+            scheduledDeliveryDate: format(threeDaysFromNow, 'yyyy-MM-dd'),
+            deliveryPerson: 'Ricardo Andrade',
+            deliveryItems: ['Urna Padrão - G', 'Pingente', 'Certificado'],
+            history: [],
+            createdAt: faker.date.recent({ days: 7 }).toISOString(),
+            realWeight: 30.0,
+            contactedByFinance: true,
+            deliveryStatus: 'scheduled'
+        },
+        {
+            id: uuidv4(),
+            code: `ENTREGA_D3_2`,
+            contractNumber: `A${(74).toString().padStart(8, '0')}`,
+            createdById: 'pf_123',
+            modality: 'individual_prata',
+            tutor: { name: 'Eduarda Santos', cpfOrCnpj: faker.finance.accountNumber(11), phone: '41999995555', email: 'duda@example.com' },
+            pet: { name: 'Nina', species: 'gato', breed: 'Persa', gender: 'femea', weight: '0-5kg', causeOfDeath: 'Doença renal' },
+            removalAddress: curitibaAddresses[4],
+            deliveryAddress: curitibaAddresses[4],
+            additionals: [],
+            paymentMethod: 'credito',
+            value: 480.00,
+            observations: '',
+            requestType: 'agora',
+            status: 'entrega_agendada',
+            scheduledDeliveryDate: format(threeDaysFromNow, 'yyyy-MM-dd'),
+            deliveryPerson: 'Ricardo Andrade',
+            deliveryItems: ['Urna Padrão - P', 'Certificado'],
+            history: [],
+            createdAt: faker.date.recent({ days: 5 }).toISOString(),
+            realWeight: 3.5,
+            contactedByFinance: true,
+            deliveryStatus: 'scheduled'
+        }
+    ];
+
+    mockRemovals.push(...scheduledDeliveriesMock);
 
     return mockRemovals;
 };

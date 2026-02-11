@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { startOfWeek, addDays, format } from 'date-fns';
+import { startOfWeek, addDays, format, addWeeks, subWeeks } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import Layout from '../components/Layout';
 import { useAuth } from '../context/AuthContext';
 import { useAgenda } from '../context/AgendaContext';
 import IncluirRemocaoModal from '../components/modals/IncluirRemocaoModal';
-import { Plus, Trash2, ArrowLeft, Save } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, Save, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Removal } from '../types';
 import { useNavigate } from 'react-router-dom';
 
@@ -13,18 +13,19 @@ const AgendaDespedida: React.FC = () => {
     const { user } = useAuth();
     const { schedule, removeFarewell, saveScheduledChanges, dirtySlots } = useAgenda();
     const [modalState, setModalState] = useState<{ isOpen: boolean; slotKey: string }>({ isOpen: false, slotKey: '' });
+    const [currentDate, setCurrentDate] = useState(new Date());
     const navigate = useNavigate();
 
     // Define quais perfis têm permissão de escrita (Adicionar/Remover)
-    // Operacional removido para ter apenas acesso de visualização
     const writePermissions = ['financeiro_junior', 'financeiro_master', 'receptor'];
     const canWrite = user?.role && writePermissions.includes(user.role);
     const isReadOnly = !canWrite;
 
     const weekDays = useMemo(() => {
-        const monday = startOfWeek(new Date(), { weekStartsOn: 1 });
-        return Array.from({ length: 5 }).map((_, i) => addDays(monday, i));
-    }, []);
+        const monday = startOfWeek(currentDate, { weekStartsOn: 1 });
+        // Array.from({ length: 6 }) inclui Segunda a Sábado
+        return Array.from({ length: 6 }).map((_, i) => addDays(monday, i));
+    }, [currentDate]);
 
     const timeSlots = ['ENCAIXE EMERGÊNCIA', '11:00', '14:00', '16:00'];
 
@@ -35,6 +36,9 @@ const AgendaDespedida: React.FC = () => {
     const handleCloseModal = () => {
         setModalState({ isOpen: false, slotKey: '' });
     };
+
+    const handlePrevWeek = () => setCurrentDate(prev => subWeeks(prev, 1));
+    const handleNextWeek = () => setCurrentDate(prev => addWeeks(prev, 1));
 
     const renderCellContent = (slotKey: string) => {
         const scheduledRemoval: Removal | undefined = schedule[slotKey];
@@ -100,7 +104,28 @@ const AgendaDespedida: React.FC = () => {
                 )}
             </div>
             <div className="bg-white p-6 rounded-lg shadow-lg">
-                <h2 className="text-2xl font-bold text-center mb-6 uppercase">Agenda {new Date().getFullYear()}</h2>
+                <div className="flex items-center justify-between mb-6">
+                    <button 
+                        onClick={handlePrevWeek}
+                        className="p-2 rounded-full hover:bg-gray-100 text-gray-600"
+                        title="Semana Anterior"
+                    >
+                        <ChevronLeft size={24} />
+                    </button>
+                    
+                    <h2 className="text-2xl font-bold text-center uppercase">
+                        Agenda {format(weekDays[0], "MMMM 'de' yyyy", { locale: ptBR })}
+                    </h2>
+
+                    <button 
+                        onClick={handleNextWeek}
+                        className="p-2 rounded-full hover:bg-gray-100 text-gray-600"
+                        title="Próxima Semana"
+                    >
+                        <ChevronRight size={24} />
+                    </button>
+                </div>
+
                 <div className="overflow-x-auto">
                     <table className="w-full border-collapse border border-gray-400 min-w-[1000px]">
                         <thead>

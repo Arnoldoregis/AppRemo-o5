@@ -1,6 +1,6 @@
 import React from 'react';
 import { Removal } from '../../types';
-import { FileText, Building2, Calendar, DollarSign, Eye, CheckCircle, Clock } from 'lucide-react';
+import { FileText, Building2, Calendar, DollarSign, Eye, CheckCircle, Clock, FileCheck } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface ContractCardProps {
@@ -50,6 +50,12 @@ const ContractCard: React.FC<ContractCardProps> = ({ removal, onClick }) => {
             <DollarSign className="h-4 w-4 mr-2 text-gray-500" />
             <span>Valor: <strong>R$ {removal.value.toFixed(2)}</strong></span>
           </div>
+          {removal.signedContractUrl && (
+            <div className="flex items-center text-green-600 mt-2 bg-green-50 p-1.5 rounded-md">
+                <FileCheck className="h-4 w-4 mr-2" />
+                <span className="text-xs font-semibold">Contrato Assinado Anexado</span>
+            </div>
+          )}
         </div>
       </div>
       <div className="mt-4 flex justify-end">

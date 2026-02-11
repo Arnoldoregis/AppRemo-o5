@@ -20,13 +20,6 @@ const NextActionModal: React.FC<NextActionModalProps> = ({ currentRemoval, remov
     if (!user) return;
     setIsLoading(true);
 
-    const currentLocationCoords = await geocodeAddress(currentRemoval.removalAddress);
-    if (!currentLocationCoords) {
-      alert('Não foi possível obter a localização atual. Verifique o endereço da remoção concluída.');
-      setIsLoading(false);
-      return;
-    }
-
     const driverRemovals = removals.filter(r => r.assignedDriver?.id === user.id);
     const driverDeliveries = removals.filter(d => d.deliveryPerson === user.name);
 
@@ -45,62 +38,89 @@ const NextActionModal: React.FC<NextActionModalProps> = ({ currentRemoval, remov
       return;
     }
 
+    // Fallback strategy: Sort by Priority -> Date
+    const getFallbackTask = () => {
+        return allPendingTasks.sort((a, b) => {
+            // 1. Priority
+            if (a.isPriority && !b.isPriority) return -1;
+            if (!a.isPriority && b.isPriority) return 1;
+            
+            // 2. Date (Oldest first)
+            const dateA = a.scheduledDeliveryDate ? new Date(a.scheduledDeliveryDate) : new Date(a.createdAt);
+            const dateB = b.scheduledDeliveryDate ? new Date(b.scheduledDeliveryDate) : new Date(b.createdAt);
+            return dateA.getTime() - dateB.getTime();
+        })[0];
+    };
+
     let closestTask: (NextTask & { distance: number }) | null = null;
+    let currentLocationCoords = null;
 
-    for (const task of allPendingTasks) {
-      const address = task.taskType === 'delivery' ? (task.deliveryAddress || task.removalAddress) : task.removalAddress;
-      const taskCoords = await geocodeAddress(address);
-      await new Promise(resolve => setTimeout(resolve, 1100)); // Respect API limit
+    try {
+        currentLocationCoords = await geocodeAddress(currentRemoval.removalAddress);
+    } catch (error) {
+        console.error("Error geocoding current location:", error);
+    }
 
-      if (taskCoords) {
-        const distance = calculateDistance(currentLocationCoords, taskCoords);
-        if (!closestTask || distance < closestTask.distance) {
-          closestTask = { ...task, distance };
+    // Only try to calculate distances if we have the current location
+    if (currentLocationCoords) {
+        for (const task of allPendingTasks) {
+          const address = task.taskType === 'delivery' ? (task.deliveryAddress || task.removalAddress) : task.removalAddress;
+          
+          try {
+              const taskCoords = await geocodeAddress(address);
+              // Small delay to respect API limits, but shorter since we have caching now
+              await new Promise(resolve => setTimeout(resolve, 600)); 
+
+              if (taskCoords) {
+                const distance = calculateDistance(currentLocationCoords, taskCoords);
+                if (!closestTask || distance < closestTask.distance) {
+                  closestTask = { ...task, distance };
+                }
+              }
+          } catch (e) {
+              console.warn(`Could not geocode task ${task.code}`, e);
+          }
         }
-      }
     }
 
     setIsLoading(false);
 
-    if (!closestTask) {
-      alert('Não foi possível calcular a rota para as tarefas pendentes.');
+    // If calculation failed (no coords, api error, etc), use fallback
+    const targetTask = closestTask || getFallbackTask();
+
+    if (!targetTask) {
+      alert('Não foi possível determinar a próxima tarefa.');
       onClose();
       return;
     }
 
-    if (closestTask.taskType === 'delivery') {
-      const proceed = window.confirm('A tarefa mais próxima é uma entrega. Deseja realizá-la agora?');
+    if (!closestTask) {
+        // Optional: Inform user that optimization failed but we are opening the next one anyway
+        console.log("Geocoding failed or incomplete, using fallback task ordering.");
+    }
+
+    if (targetTask.taskType === 'delivery') {
+      const proceed = window.confirm(`A próxima tarefa ${closestTask ? 'mais próxima' : 'sugerida'} é uma ENTREGA. Deseja realizá-la agora?`);
       if (proceed) {
-        onClose(closestTask);
+        onClose(targetTask);
       } else {
-        // Find closest removal instead
+        // User skipped delivery, try to find a removal
         const removalsOnly = allPendingTasks.filter(t => t.taskType === 'removal');
         if (removalsOnly.length > 0) {
-            let closestRemovalTask: (NextTask & { distance: number }) | null = null;
-             for (const task of removalsOnly) {
-                const address = task.removalAddress;
-                const taskCoords = await geocodeAddress(address);
-                await new Promise(resolve => setTimeout(resolve, 1100));
-                if (taskCoords) {
-                    const distance = calculateDistance(currentLocationCoords, taskCoords);
-                    if (!closestRemovalTask || distance < closestRemovalTask.distance) {
-                        closestRemovalTask = { ...task, distance };
-                    }
-                }
-             }
-             if(closestRemovalTask) {
-                onClose(closestRemovalTask);
-             } else {
-                alert("Não foi possível calcular a rota para as remoções pendentes.");
-                onClose();
-             }
+             // Simple fallback for removal
+             const nextRemoval = removalsOnly.sort((a, b) => {
+                if (a.isPriority && !b.isPriority) return -1;
+                if (!a.isPriority && b.isPriority) return 1;
+                return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+             })[0];
+             onClose(nextRemoval);
         } else {
-            alert("Nenhuma remoção pendente encontrada.");
+            alert("Nenhuma remoção pendente encontrada. Voltando ao painel.");
             onClose();
         }
       }
     } else {
-      onClose(closestTask);
+      onClose(targetTask);
     }
   };
 

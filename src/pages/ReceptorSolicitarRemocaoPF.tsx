@@ -3,14 +3,22 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useRemovals } from '../context/RemovalContext';
 import Layout from '../components/Layout';
-import { ArrowLeft, Upload, Plus, Minus, MapPin, Search } from 'lucide-react';
-import { Additional, Removal } from '../types';
+import { ArrowLeft, Upload, Plus, Minus, MapPin, Search, AlertTriangle } from 'lucide-react';
+import { Additional, Removal, Address } from '../types';
 import { priceTable, adicionaisDisponiveis } from '../data/pricing';
+import { getRegionFromAddress, getSpeciesType, getBillingType } from '../utils/pricingUtils';
+import { generateContractPdf } from '../utils/generateContractPdf';
+import GenerateContractModal from '../components/modals/GenerateContractModal';
+import { generateRemovalCode, generateContractNumber } from '../utils/codeGenerator';
+import { formatCPF, formatPhone, validateCPF, validatePhone } from '../utils/validation';
+import { format } from 'date-fns';
+
+const EMERGENCY_FEE = 50;
 
 const ReceptorSolicitarRemocaoPF: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { generateRemovalCode, addRemoval } = useRemovals();
+  const { removals, addRemoval } = useRemovals();
 
   const [formData, setFormData] = useState({
     modalidade: '' as Removal['modality'],
@@ -39,12 +47,78 @@ const ReceptorSolicitarRemocaoPF: React.FC = () => {
     motivoAgendamento: ''
   });
 
+  const [errors, setErrors] = useState({ tutorCpf: '', tutorContato: '' });
   const [adicionais, setAdicionais] = useState<Additional[]>([]);
   const [valorTotal, setValorTotal] = useState(0);
+  const [priceBreakdown, setPriceBreakdown] = useState({ base: 0, extras: 0, discount: 0, emergency: 0 });
   const [showUpload, setShowUpload] = useState(false);
   const [showContrato, setShowContrato] = useState(false);
   const [showPagamentoInfo, setShowPagamentoInfo] = useState(false);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [isEmergencyHours, setIsEmergencyHours] = useState(false);
+  const [showEmergencyConfirmModal, setShowEmergencyConfirmModal] = useState(false);
+  const [baseCausaMorte, setBaseCausaMorte] = useState('');
+  const [doencas, setDoencas] = useState<string[]>([]);
+  const [isContagious, setIsContagious] = useState(false);
+  const [showContagiousWarning, setShowContagiousWarning] = useState(false);
+  const [showContractConfirm, setShowContractConfirm] = useState(false);
+  const [pendingRemovalData, setPendingRemovalData] = useState<Partial<Removal> | null>(null);
+
+  useEffect(() => {
+    const doencasStr = doencas.join(', ');
+    const finalCausa = [baseCausaMorte.trim(), doencasStr].filter(Boolean).join(' - ');
+    setFormData(prev => ({ ...prev, petCausaMorte: finalCausa }));
+  }, [baseCausaMorte, doencas]);
+
+  // Efeito para adicionar automaticamente a patinha quando selecionar Individual Ouro
+  useEffect(() => {
+    if (formData.modalidade === 'individual_ouro') {
+        const patinhaType = 'patinha_resina';
+        setAdicionais(prev => {
+            // Verifica se já existe
+            if (prev.some(a => a.type === patinhaType)) return prev;
+            
+            const info = adicionaisDisponiveis.find(a => a.type === patinhaType);
+            if (info) {
+                return [...prev, { type: patinhaType, quantity: 1, value: info.value }];
+            }
+            return prev;
+        });
+    }
+  }, [formData.modalidade]);
+
+  useEffect(() => {
+    const contagiousDiseases = ['Leptospirose', 'Esporotricose'];
+    const hasContagious = doencas.some(d => contagiousDiseases.includes(d));
+    setIsContagious(hasContagious);
+
+    if (hasContagious) {
+        setShowContagiousWarning(true);
+        setAdicionais(prev => prev.filter(ad => !['patinha_resina', 'relicario', 'carteirinha_pelinho'].includes(ad.type)));
+        
+        if (formData.modalidade === 'individual_ouro') {
+            setFormData(prev => ({ ...prev, modalidade: 'individual_prata' }));
+        }
+    } else {
+        setShowContagiousWarning(false);
+    }
+  }, [doencas, formData.modalidade]);
+
+  useEffect(() => {
+    const isScheduling = formData.tipoSolicitacao === 'agendar';
+    let isEmergency = false;
+
+    if (isScheduling && formData.horarioAgendamento) {
+        const hour = parseInt(formData.horarioAgendamento.split(':')[0], 10);
+        isEmergency = hour >= 21 || hour < 8;
+    } else if (!isScheduling) {
+        const now = new Date();
+        const currentHour = now.getHours();
+        isEmergency = currentHour >= 21 || currentHour < 8;
+    }
+    
+    setIsEmergencyHours(isEmergency);
+  }, [formData.tipoSolicitacao, formData.horarioAgendamento]);
 
   const paymentOptions = [
     { value: 'debito', label: 'Cartão de Débito' },
@@ -57,36 +131,102 @@ const ReceptorSolicitarRemocaoPF: React.FC = () => {
 
   useEffect(() => {
     const calcularValorTotal = () => {
-      let valorBase = 0;
-      if (formData.petPeso && formData.modalidade) {
-        const pesoKey = formData.petPeso as keyof typeof priceTable;
-        if (priceTable[pesoKey]?.[formData.modalidade]) {
-          valorBase = priceTable[pesoKey][formData.modalidade];
+        const currentAddress: Address = {
+            cep: formData.enderecoCep,
+            street: formData.enderecoRua,
+            number: formData.enderecoNumero,
+            neighborhood: formData.enderecoBairro,
+            city: formData.enderecoCidade,
+            state: formData.enderecoEstado,
+        };
+
+        const canCalculate = 
+            formData.modalidade &&
+            formData.petEspecie &&
+            formData.petPeso &&
+            currentAddress.city &&
+            currentAddress.state &&
+            formData.formaPagamento;
+
+        if (!canCalculate) {
+            setValorTotal(0);
+            setPriceBreakdown({ base: 0, extras: 0, discount: 0, emergency: 0 });
+            return;
         }
-      }
-      const valorAdicionais = adicionais.reduce((total, ad) => total + (ad.value * ad.quantity), 0);
+
+        let valorBase = 0;
+        const pesoKey = formData.petPeso;
+        const modKey = formData.modalidade;
+        
+        const region = getRegionFromAddress(currentAddress);
+        const speciesType = getSpeciesType(formData.petEspecie);
+        const billingType = getBillingType(formData.formaPagamento);
+
+        if (priceTable[region]?.[speciesType]?.[billingType]?.[pesoKey]?.[modKey]) {
+            valorBase = priceTable[region][speciesType][billingType][pesoKey][modKey];
+        }
       
-      let finalTotal = valorBase + valorAdicionais;
+        const valorAdicionais = adicionais.reduce((total, adicional) => {
+            return total + (adicional.value * adicional.quantity);
+        }, 0);
+    
+        const emergencyFeeValue = isEmergencyHours ? EMERGENCY_FEE : 0;
+        let finalTotal = valorBase + valorAdicionais + emergencyFeeValue;
+        let patinhaDiscount = 0;
 
-      if (formData.modalidade === 'individual_ouro' && adicionais.some(ad => ad.type === 'patinha_resina' && ad.quantity > 0)) {
-          const patinhaPrice = adicionaisDisponiveis.find(ad => ad.type === 'patinha_resina')?.value || 0;
-          finalTotal -= patinhaPrice;
-      }
+        if (formData.modalidade === 'individual_ouro' && adicionais.some(ad => ad.type === 'patinha_resina' && ad.quantity > 0)) {
+            const patinhaPrice = adicionaisDisponiveis.find(ad => ad.type === 'patinha_resina')?.value || 0;
+            patinhaDiscount = patinhaPrice;
+            finalTotal -= patinhaPrice;
+        }
 
-      setValorTotal(finalTotal);
+        setValorTotal(finalTotal);
+        setPriceBreakdown({ base: valorBase, extras: valorAdicionais, discount: patinhaDiscount, emergency: emergencyFeeValue });
     };
+
     calcularValorTotal();
-  }, [formData.petPeso, formData.modalidade, adicionais]);
+  }, [formData.modalidade, formData.petEspecie, formData.petPeso, formData.formaPagamento, adicionais, formData.enderecoCep, formData.enderecoCidade, formData.enderecoEstado, isEmergencyHours]);
 
   useEffect(() => {
-    setShowUpload(formData.formaPagamento === 'pix' || formData.formaPagamento === 'link_pagamento');
-    setShowContrato(formData.formaPagamento === 'plano_preventivo');
-    setShowPagamentoInfo(['credito', 'debito', 'dinheiro'].includes(formData.formaPagamento));
+    const needsUpload = formData.formaPagamento === 'pix' || formData.formaPagamento === 'link_pagamento';
+    const needsContrato = formData.formaPagamento === 'plano_preventivo';
+    const needsInfo = ['credito', 'debito', 'dinheiro'].includes(formData.formaPagamento);
+    
+    setShowUpload(needsUpload);
+    setShowContrato(needsContrato);
+    setShowPagamentoInfo(needsInfo);
   }, [formData.formaPagamento]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    let formattedValue = value;
+
+    if (name === 'tutorCpf') {
+        formattedValue = formatCPF(value.replace(/\D/g, '').slice(0, 11));
+    } else if (name === 'tutorContato') {
+        formattedValue = formatPhone(value.replace(/\D/g, '').slice(0, 11));
+    }
+
+    if (name === 'petCausaMorte') {
+        setBaseCausaMorte(value);
+    } else {
+        setFormData(prev => ({ ...prev, [name]: formattedValue }));
+    }
+
+    if (errors[name as keyof typeof errors]) {
+        setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const handleDoencaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { value, checked } = e.target;
+    setDoencas(prev => {
+        if (checked) {
+            return [...prev, value];
+        } else {
+            return prev.filter(d => d !== value);
+        }
+    });
   };
 
   const searchCEP = async () => {
@@ -111,49 +251,89 @@ const ReceptorSolicitarRemocaoPF: React.FC = () => {
   };
 
   const handleAdicionalChange = (type: Additional['type'], quantity: number) => {
+    if (isContagious && ['patinha_resina', 'relicario', 'carteirinha_pelinho'].includes(type)) {
+        return;
+    }
     const adicionalInfo = adicionaisDisponiveis.find(a => a.type === type);
     if (!adicionalInfo) return;
+
     setAdicionais(prev => {
       const existing = prev.find(a => a.type === type);
-      if (quantity <= 0) return prev.filter(a => a.type !== type);
-      if (existing) return prev.map(a => a.type === type ? { ...a, quantity } : a);
+      if (quantity <= 0) {
+        return prev.filter(a => a.type !== type);
+      }
+      if (existing) {
+        return prev.map(a => 
+          a.type === type 
+            ? { ...a, quantity }
+            : a
+        );
+      }
       return [...prev, { type, quantity, value: adicionalInfo.value }];
     });
   };
 
-  const getAdicionalQuantity = (type: string) => adicionais.find(a => a.type === type)?.quantity || 0;
+  const getAdicionalQuantity = (type: string) => {
+    return adicionais.find(a => a.type === type)?.quantity || 0;
+  };
+
+  const handleConfirmAndGenerateContract = () => {
+    if (!pendingRemovalData) return;
+
+    const newRemovalCode = generateRemovalCode(removals);
+    const newContractNumber = generateContractNumber(removals);
+
+    const finalData = { 
+        ...pendingRemovalData, 
+        code: newRemovalCode,
+        contractNumber: newContractNumber,
+        hasContract: true 
+    };
+    
+    generateContractPdf(finalData);
+    addRemoval(finalData);
+
+    alert(`Solicitação criada com sucesso! Em breve um de nossos atendentes entrará em contato.`);
+    navigate('/');
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors = { tutorCpf: '', tutorContato: '' };
+    let isValid = true;
+
+    if (!validateCPF(formData.tutorCpf)) {
+        newErrors.tutorCpf = 'CPF deve ter 11 dígitos.';
+        isValid = false;
+    }
+
+    if (!validatePhone(formData.tutorContato)) {
+        newErrors.tutorContato = 'Telefone deve ter 10 ou 11 dígitos.';
+        isValid = false;
+    }
+
+    setErrors(newErrors);
+    return isValid;
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
-    
-    const removalCode = generateRemovalCode();
-    const removal: Removal = {
-      code: removalCode,
-      createdById: user.id,
+    if (!validateForm()) {
+        alert('Por favor, corrija os campos inválidos.');
+        return;
+    }
+
+    let historyAction = 'Solicitação criada';
+    if (formData.tipoSolicitacao === 'agendar' && formData.dataAgendamento && formData.horarioAgendamento) {
+        const formattedDate = format(new Date(formData.dataAgendamento + 'T00:00:00'), 'dd/MM/yyyy');
+        historyAction = `Solicitação com agendamento por tutor para o dia ${formattedDate} às ${formData.horarioAgendamento}`;
+    }
+
+    const removalData: Partial<Removal> = {
+      createdById: formData.tutorCpf,
       modality: formData.modalidade,
-      tutor: {
-        cpfOrCnpj: formData.tutorCpf,
-        name: formData.tutorNome,
-        phone: formData.tutorContato,
-        email: formData.tutorEmail
-      },
-      pet: {
-        name: formData.petNome,
-        species: formData.petEspecie,
-        breed: formData.petRaca,
-        gender: formData.petSexo,
-        weight: formData.petPeso,
-        causeOfDeath: formData.petCausaMorte
-      },
-      removalAddress: {
-        cep: formData.enderecoCep,
-        street: formData.enderecoRua,
-        number: formData.enderecoNumero,
-        neighborhood: formData.enderecoBairro,
-        city: formData.enderecoCidade,
-        state: formData.enderecoEstado,
-      },
+      tutor: { cpfOrCnpj: formData.tutorCpf, name: formData.tutorNome, phone: formData.tutorContato, email: formData.tutorEmail },
+      pet: { name: formData.petNome, species: formData.petEspecie, breed: formData.petRaca, gender: formData.petSexo, weight: formData.petPeso, causeOfDeath: formData.petCausaMorte },
+      removalAddress: { cep: formData.enderecoCep, street: formData.enderecoRua, number: formData.enderecoNumero, neighborhood: formData.enderecoBairro, city: formData.enderecoCidade, state: formData.enderecoEstado },
       additionals: adicionais,
       paymentMethod: formData.formaPagamento,
       value: valorTotal,
@@ -163,66 +343,196 @@ const ReceptorSolicitarRemocaoPF: React.FC = () => {
       scheduledTime: formData.horarioAgendamento,
       schedulingReason: formData.motivoAgendamento,
       status: formData.tipoSolicitacao === 'agendar' ? 'agendada' : 'solicitada',
-      history: [{ date: new Date().toISOString(), action: `Solicitação criada pelo Receptor ${user.name}`, user: user.name }],
+      history: [{ date: new Date().toISOString(), action: historyAction, user: formData.tutorNome }],
       contractNumber: formData.contratoNumero,
       paymentProof: paymentProofFile ? paymentProofFile.name : undefined,
-      createdAt: new Date().toISOString(),
+      emergencyFee: isEmergencyHours ? EMERGENCY_FEE : undefined,
     };
+    
+    setPendingRemovalData(removalData);
 
-    addRemoval(removal);
-    alert(`Solicitação para Pessoa Física criada com sucesso! Código: ${removalCode}`);
-    navigate('/funcionario/receptor');
+    if (formData.tipoSolicitacao === 'agendar' && isEmergencyHours) {
+        setShowEmergencyConfirmModal(true);
+    } else {
+        setShowContractConfirm(true);
+    }
+  };
+
+  const handleEmergencyConfirm = () => {
+    setShowEmergencyConfirmModal(false);
+    setShowContractConfirm(true);
   };
 
   const isPatinhaInclusa = formData.modalidade === 'individual_ouro';
 
   return (
+    <>
     <Layout title="Solicitar Remoção (Pessoa Física)">
       <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <button onClick={() => navigate('/funcionario/receptor')} className="flex items-center text-blue-600 hover:text-blue-800"><ArrowLeft className="h-5 w-5 mr-2" />Voltar ao Dashboard</button>
-        </div>
         <div className="bg-white rounded-lg shadow-md p-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Solicitar Remoção - Pessoa Física</h2>
+
           <form onSubmit={handleSubmit} className="space-y-8">
+            {/* Modalidade */}
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Modalidade *</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {['coletivo', 'individual_prata', 'individual_ouro'].map((m) => (
-                  <label key={m} className="relative cursor-pointer">
-                    <input type="radio" name="modalidade" value={m} checked={formData.modalidade === m} onChange={handleInputChange} className="sr-only" required />
-                    <div className={`p-4 rounded-lg border-2 text-center transition-all ${formData.modalidade === m ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <span className="font-medium">{m.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                {['coletivo', 'individual_prata', 'individual_ouro'].map((m) => {
+                  const isDisabled = isContagious && m === 'individual_ouro';
+                  return (
+                    <label key={m} className={`relative cursor-pointer ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                      <input
+                        type="radio"
+                        name="modalidade"
+                        value={m}
+                        checked={formData.modalidade === m}
+                        onChange={handleInputChange}
+                        className="sr-only"
+                        required
+                        disabled={isDisabled}
+                      />
+                      <div className={`p-4 rounded-lg border-2 text-center transition-all ${
+                        formData.modalidade === m
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      } ${isDisabled ? 'bg-gray-100' : ''}`}>
+                        <span className="font-medium">
+                          {m.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {showContagiousWarning && (
+                <div className="my-6 p-4 bg-red-100 text-red-800 rounded-lg border border-red-300 flex items-start gap-3">
+                    <AlertTriangle className="h-8 w-8 flex-shrink-0 mt-1" />
+                    <div>
+                        <h4 className="font-bold text-lg">Atenção: Doença Contagiosa Detectada</h4>
+                        <p className="text-sm mt-1">
+                            Por conta da doença contagiosa, a despedida presencial (Plano Ouro) e a confecção de lembranças como Patinha, Relicário e Carteirinha com pelinho não são possíveis.
+                            {formData.modalidade === 'individual_prata' && ' O plano foi ajustado automaticamente para Individual Prata.'}
+                        </p>
                     </div>
-                  </label>
-                ))}
-              </div>
-            </div>
+                </div>
+            )}
+
+            {/* Dados do Tutor */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Dados do Tutor *</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Seus Dados</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <input type="text" name="tutorCpf" value={formData.tutorCpf} onChange={handleInputChange} placeholder="CPF" required className="w-full px-3 py-2 border rounded-md" />
-                <input type="text" name="tutorNome" value={formData.tutorNome} onChange={handleInputChange} placeholder="Nome do Tutor" required className="w-full px-3 py-2 border rounded-md" />
-                <input type="text" name="tutorContato" value={formData.tutorContato} onChange={handleInputChange} placeholder="Número de Contato" required className="w-full px-3 py-2 border rounded-md" />
-                <input type="email" name="tutorEmail" value={formData.tutorEmail} onChange={handleInputChange} placeholder="Email" className="w-full px-3 py-2 border rounded-md" />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">CPF *</label>
+                  <input type="text" name="tutorCpf" value={formData.tutorCpf} onChange={handleInputChange} required placeholder="000.000.000-00" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  {errors.tutorCpf && <p className="text-red-500 text-xs mt-1">{errors.tutorCpf}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nome Completo *</label>
+                  <input type="text" name="tutorNome" value={formData.tutorNome} onChange={handleInputChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Número de Contato *</label>
+                  <input type="text" name="tutorContato" value={formData.tutorContato} onChange={handleInputChange} required placeholder="(XX) XXXXX-XXXX" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  {errors.tutorContato && <p className="text-red-500 text-xs mt-1">{errors.tutorContato}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                  <input type="email" name="tutorEmail" value={formData.tutorEmail} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
               </div>
             </div>
+
+            {/* Dados do Pet */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Dados do Pet *</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Dados do Pet</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <input type="text" name="petNome" value={formData.petNome} onChange={handleInputChange} placeholder="Nome do Pet" required className="w-full px-3 py-2 border rounded-md" />
-                <select name="petEspecie" value={formData.petEspecie} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Espécie</option><option value="cachorro">Cachorro</option><option value="gato">Gato</option><option value="roedor">Roedor</option><option value="passaro">Pássaro</option><option value="outros">Outros</option></select>
-                <input type="text" name="petRaca" value={formData.petRaca} onChange={handleInputChange} placeholder="Raça" className="w-full px-3 py-2 border rounded-md" />
-                <select name="petSexo" value={formData.petSexo} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Sexo</option><option value="macho">Macho</option><option value="femea">Fêmea</option></select>
-                <select name="petPeso" value={formData.petPeso} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Peso</option><option value="0-5kg">Até 05kg</option><option value="6-10kg">06-10kg</option><option value="11-20kg">11-20kg</option><option value="21-40kg">21-40kg</option><option value="41-50kg">41-50kg</option><option value="51-60kg">51-60kg</option><option value="61-80kg">61-80kg</option></select>
-                <input type="text" name="petCausaMorte" value={formData.petCausaMorte} onChange={handleInputChange} placeholder="Causa da morte" className="w-full px-3 py-2 border rounded-md" />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nome do Pet *</label>
+                  <input type="text" name="petNome" value={formData.petNome} onChange={handleInputChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Espécie *</label>
+                  <select name="petEspecie" value={formData.petEspecie} onChange={handleInputChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" >
+                    <option value="">Selecione</option>
+                    <option value="cachorro">Cachorro</option>
+                    <option value="gato">Gato</option>
+                    <option value="roedor">Roedor</option>
+                    <option value="passaro">Pássaro</option>
+                    <option value="outros">Outros</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Raça</label>
+                  <input type="text" name="petRaca" value={formData.petRaca} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Sexo *</label>
+                  <select name="petSexo" value={formData.petSexo} onChange={handleInputChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" >
+                    <option value="">Selecione</option>
+                    <option value="macho">Macho</option>
+                    <option value="femea">Fêmea</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Peso *</label>
+                  <select name="petPeso" value={formData.petPeso} onChange={handleInputChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" >
+                    <option value="">Selecione</option>
+                    <option value="0-5kg">Até 05kg</option>
+                    <option value="6-10kg">De 06kg a 10kg</option>
+                    <option value="11-20kg">De 11kg a 20kg</option>
+                    <option value="21-40kg">De 21kg a 40kg</option>
+                    <option value="41-50kg">De 41kg a 50kg</option>
+                    <option value="51-60kg">De 51kg a 60kg</option>
+                    <option value="61-80kg">De 61kg a 80kg</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Causa da morte</label>
+                  <input
+                    type="text"
+                    name="petCausaMorte"
+                    value={baseCausaMorte}
+                    onChange={handleInputChange}
+                    placeholder="Descreva a causa da morte"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer p-2 rounded-md hover:bg-gray-100">
+                        <input
+                            type="checkbox"
+                            value="Leptospirose"
+                            onChange={handleDoencaChange}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Leptospirose
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer p-2 rounded-md hover:bg-gray-100">
+                        <input
+                            type="checkbox"
+                            value="Esporotricose"
+                            onChange={handleDoencaChange}
+                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Esporotricose
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
+
+            {/* Endereço */}
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Endereço da Remoção *</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="relative"><input type="text" name="enderecoCep" value={formData.enderecoCep} onChange={handleInputChange} placeholder="CEP" required className="w-full px-3 py-2 border rounded-md" /><button type="button" onClick={searchCEP} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"><Search className="h-5 w-5" /></button></div>
-                <div className="md:col-span-2"><input type="text" name="enderecoRua" value={formData.enderecoRua} onChange={handleInputChange} placeholder="Rua" required className="w-full px-3 py-2 border rounded-md" /></div>
+                <div className="relative">
+                  <input type="text" name="enderecoCep" value={formData.enderecoCep} onChange={handleInputChange} placeholder="CEP" required className="w-full px-3 py-2 border rounded-md" />
+                  <button type="button" onClick={searchCEP} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"><Search className="h-5 w-5" /></button>
+                </div>
+                <div className="md:col-span-2">
+                  <input type="text" name="enderecoRua" value={formData.enderecoRua} onChange={handleInputChange} placeholder="Rua" required className="w-full px-3 py-2 border rounded-md" />
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
                 <input type="text" name="enderecoNumero" value={formData.enderecoNumero} onChange={handleInputChange} placeholder="Número" required className="w-full px-3 py-2 border rounded-md" />
@@ -231,56 +541,204 @@ const ReceptorSolicitarRemocaoPF: React.FC = () => {
                 <input type="text" name="enderecoEstado" value={formData.enderecoEstado} onChange={handleInputChange} placeholder="UF" required maxLength={2} className="w-full px-3 py-2 border rounded-md" />
               </div>
             </div>
+
+            {/* Adicionais */}
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Adicionais</h3>
               <div className="space-y-4">
-                {adicionaisDisponiveis.map((ad) => (
-                  <div key={ad.type} className={`flex items-center justify-between p-4 border rounded-lg ${isPatinhaInclusa && ad.type === 'patinha_resina' ? 'bg-gray-50 border-green-200' : 'border-gray-200'}`}>
-                    <div><span className="font-medium">{ad.label}</span><span className="text-green-600 ml-2">R$ {ad.value},00</span>{isPatinhaInclusa && ad.type === 'patinha_resina' && (<span className="ml-3 text-xs font-bold text-white bg-green-500 px-2 py-0.5 rounded-full">1ª Grátis</span>)}</div>
-                    <div className="flex items-center space-x-3">
-                      <button type="button" onClick={() => handleAdicionalChange(ad.type, Math.max(0, getAdicionalQuantity(ad.type) - 1))} className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200"><Minus className="h-4 w-4" /></button>
-                      <span className="w-8 text-center">{getAdicionalQuantity(ad.type)}</span>
-                      <button type="button" onClick={() => handleAdicionalChange(ad.type, Math.min(15, getAdicionalQuantity(ad.type) + 1))} className="p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200"><Plus className="h-4 w-4" /></button>
+                {adicionaisDisponiveis.map((adicional) => {
+                  const isForbidden = isContagious && ['patinha_resina', 'relicario', 'carteirinha_pelinho'].includes(adicional.type);
+                  return (
+                    <div key={adicional.type} className={`flex items-center justify-between p-4 border rounded-lg transition-all ${
+                        isForbidden ? 'bg-gray-100 opacity-50' : 
+                        (isPatinhaInclusa && adicional.type === 'patinha_resina' ? 'bg-gray-50 border-green-200' : 'border-gray-200')
+                    }`}>
+                        <div>
+                            <span className="font-medium">{adicional.label}</span>
+                            <span className="text-green-600 ml-2">R$ {adicional.value},00</span>
+                            {isPatinhaInclusa && adicional.type === 'patinha_resina' && (<span className="ml-3 text-xs font-bold text-white bg-green-500 px-2 py-0.5 rounded-full">1ª Grátis</span>)}
+                        </div>
+                        <div className="flex items-center space-x-3">
+                            <button type="button" onClick={() => handleAdicionalChange(adicional.type, Math.max(0, getAdicionalQuantity(adicional.type) - 1))} disabled={isForbidden} className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 disabled:bg-gray-200 disabled:cursor-not-allowed">
+                                <Minus className="h-4 w-4" />
+                            </button>
+                            <span className="w-8 text-center font-medium">
+                                {getAdicionalQuantity(adicional.type)}
+                            </span>
+                            <button type="button" onClick={() => handleAdicionalChange(adicional.type, Math.min(15, getAdicionalQuantity(adicional.type) + 1))} disabled={isForbidden} className="p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 disabled:bg-gray-200 disabled:cursor-not-allowed">
+                                <Plus className="h-4 w-4" />
+                            </button>
+                        </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
+            
+            {/* Forma de Pagamento */}
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Forma de Pagamento *</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {paymentOptions.map((p) => (
-                  <label key={p.value} className="relative cursor-pointer">
-                    <input type="radio" name="formaPagamento" value={p.value} checked={formData.formaPagamento === p.value} onChange={handleInputChange} className="sr-only" required />
-                    <div className={`p-3 rounded-lg border-2 text-center text-sm transition-all ${formData.formaPagamento === p.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>{p.label}</div>
+                {paymentOptions.map((pagamento) => (
+                  <label key={pagamento.value} className="relative cursor-pointer">
+                    <input type="radio" name="formaPagamento" value={pagamento.value} checked={formData.formaPagamento === pagamento.value} onChange={handleInputChange} className="sr-only" required />
+                    <div className={`p-3 rounded-lg border-2 text-center text-sm transition-all ${
+                      formData.formaPagamento === pagamento.value
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                      {pagamento.label}
+                    </div>
                   </label>
                 ))}
               </div>
-              {showUpload && <div className="mt-4 p-4 bg-yellow-50 rounded-lg"><label className="block text-sm font-medium text-gray-700 mb-2"><Upload className="inline h-4 w-4 mr-1" />Anexar Comprovante</label><input type="file" onChange={(e) => setPaymentProofFile(e.target.files ? e.target.files[0] : null)} className="w-full px-3 py-2 border rounded-md" /></div>}
-              {showContrato && <div className="mt-4"><label className="block text-sm font-medium text-gray-700 mb-2">Número do Contrato</label><input type="text" name="contratoNumero" value={formData.contratoNumero} onChange={handleInputChange} className="w-full px-3 py-2 border rounded-md" /></div>}
-              {showPagamentoInfo && <div className="mt-4 p-4 bg-blue-50 rounded-lg"><p className="text-blue-800 text-sm"><strong>Informação:</strong> O pagamento será realizado no ato da remoção.</p></div>}
-            </div>
-            <div className="bg-gray-50 p-4 rounded-lg"><div className="text-lg font-semibold text-gray-900">Valor Total: <span className="text-green-600">R$ {valorTotal.toFixed(2)}</span></div></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-2">Observações</label><textarea name="observacoes" value={formData.observacoes} onChange={handleInputChange} rows={4} className="w-full px-3 py-2 border rounded-md" placeholder="Informações adicionais..."></textarea></div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Solicitar Remoção</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label className="relative cursor-pointer"><input type="radio" name="tipoSolicitacao" value="agora" checked={formData.tipoSolicitacao === 'agora'} onChange={handleInputChange} className="sr-only" /><div className={`p-4 rounded-lg border-2 text-center transition-all ${formData.tipoSolicitacao === 'agora' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}><span className="font-medium">Solicitar Agora</span></div></label>
-                <label className="relative cursor-pointer"><input type="radio" name="tipoSolicitacao" value="agendar" checked={formData.tipoSolicitacao === 'agendar'} onChange={handleInputChange} className="sr-only" /><div className={`p-4 rounded-lg border-2 text-center transition-all ${formData.tipoSolicitacao === 'agendar' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}><span className="font-medium">Agendar Remoção</span></div></label>
-              </div>
-              {formData.tipoSolicitacao === 'agendar' && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-700 mb-2">Data</label><input type="date" name="dataAgendamento" value={formData.dataAgendamento} onChange={handleInputChange} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border rounded-md" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-2">Horário</label><input type="time" name="horarioAgendamento" value={formData.horarioAgendamento} onChange={handleInputChange} className="w-full px-3 py-2 border rounded-md" /></div>
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-2">Motivo do Agendamento</label><textarea name="motivoAgendamento" value={formData.motivoAgendamento} onChange={handleInputChange} rows={3} className="w-full px-3 py-2 border rounded-md" placeholder="Explique o motivo..."></textarea></div>
+
+              {showUpload && (
+                <div className="mt-4 p-4 bg-yellow-50 rounded-lg">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <Upload className="inline h-4 w-4 mr-1" />
+                    Anexar Comprovante de Pagamento (JPG, PDF)
+                  </label>
+                  <input type="file" accept=".jpg,.jpeg,.pdf" onChange={(e) => setPaymentProofFile(e.target.files ? e.target.files[0] : null)} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                </div>
+              )}
+
+              {showContrato && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Número do Contrato</label>
+                  <input type="text" name="contratoNumero" value={formData.contratoNumero} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              )}
+
+              {showPagamentoInfo && (
+                <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                  <p className="text-blue-800 text-sm">
+                    <strong>Informação:</strong> O pagamento será realizado no ato da remoção.
+                  </p>
                 </div>
               )}
             </div>
-            <div className="flex justify-end space-x-4 pt-6"><button type="button" onClick={() => navigate('/funcionario/receptor')} className="px-6 py-2 border rounded-md">Cancelar</button><button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Solicitar</button></div>
+            
+            {isEmergencyHours && formData.tipoSolicitacao === 'agora' && (
+              <div className="p-4 bg-red-50 text-red-800 rounded-lg border border-red-200 flex items-center gap-3">
+                <AlertTriangle className="h-6 w-6 flex-shrink-0" />
+                <div>
+                  <h4 className="font-bold">Taxa Emergencial</h4>
+                  <p className="text-sm">Uma taxa de R$ {EMERGENCY_FEE.toFixed(2)} será adicionada para solicitações entre 21h e 8h.</p>
+                </div>
+              </div>
+            )}
+
+            {/* Valor Total */}
+            <div className="bg-gray-50 p-4 rounded-lg space-y-2 border border-gray-200">
+                <div className="flex justify-between items-center">
+                    <span className="text-lg font-semibold text-gray-800">Valor Total:</span>
+                    {valorTotal > 0 || (priceBreakdown.base === 0 && priceBreakdown.extras > 0) ? (
+                        <span className="text-2xl font-bold text-green-600">R$ {valorTotal.toFixed(2)}</span>
+                    ) : (
+                        <span className="text-sm text-gray-500">Preencha os campos para calcular</span>
+                    )}
+                </div>
+                {valorTotal > 0 && (
+                    <details className="text-xs">
+                        <summary className="text-blue-600 cursor-pointer select-none font-medium">Ver detalhes do cálculo</summary>
+                        <div className="text-sm text-gray-600 mt-2 space-y-1 border-t pt-2">
+                            {priceBreakdown.base > 0 && <div className="flex justify-between"><span>Valor Base (Modalidade/Peso/Região):</span><span>R$ {priceBreakdown.base.toFixed(2)}</span></div>}
+                            {priceBreakdown.emergency > 0 && <div className="flex justify-between"><span>Taxa Emergencial:</span><span>+ R$ {priceBreakdown.emergency.toFixed(2)}</span></div>}
+                            {priceBreakdown.extras > 0 && <div className="flex justify-between"><span>Adicionais:</span><span>+ R$ {priceBreakdown.extras.toFixed(2)}</span></div>}
+                            {priceBreakdown.discount > 0 && <div className="flex justify-between text-red-600"><span>Desconto (Patinha Inclusa):</span><span>- R$ {priceBreakdown.discount.toFixed(2)}</span></div>}
+                        </div>
+                    </details>
+                )}
+            </div>
+            
+            {/* Observações */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Observações</label>
+              <textarea name="observacoes" value={formData.observacoes} onChange={handleInputChange} rows={4} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Informações adicionais..." />
+            </div>
+
+            {/* Tipo de Solicitação */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Solicitar Remoção</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="relative cursor-pointer">
+                  <input type="radio" name="tipoSolicitacao" value="agora" checked={formData.tipoSolicitacao === 'agora'} onChange={handleInputChange} className="sr-only" />
+                  <div className={`p-4 rounded-lg border-2 text-center transition-all ${
+                    formData.tipoSolicitacao === 'agora'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}>
+                    <span className="font-medium">Solicitar Agora</span>
+                  </div>
+                </label>
+                <label className="relative cursor-pointer">
+                  <input type="radio" name="tipoSolicitacao" value="agendar" checked={formData.tipoSolicitacao === 'agendar'} onChange={handleInputChange} className="sr-only" />
+                  <div className={`p-4 rounded-lg border-2 text-center transition-all ${
+                    formData.tipoSolicitacao === 'agendar'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}>
+                    <span className="font-medium">Agendar Remoção</span>
+                  </div>
+                </label>
+              </div>
+
+              {formData.tipoSolicitacao === 'agendar' && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Data</label>
+                    <input type="date" name="dataAgendamento" value={formData.dataAgendamento} onChange={handleInputChange} min={new Date().toISOString().split('T')[0]} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Horário</label>
+                    <input type="time" name="horarioAgendamento" value={formData.horarioAgendamento} onChange={handleInputChange} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Motivo do Agendamento</label>
+                    <textarea name="motivoAgendamento" value={formData.motivoAgendamento} onChange={handleInputChange} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Explique o motivo para agendar a remoção..." />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Botões */}
+            <div className="flex justify-end space-x-4 pt-6">
+              <button type="button" onClick={() => navigate('/')} className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50" >
+                Cancelar
+              </button>
+              <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700" >
+                Solicitar
+              </button>
+            </div>
           </form>
         </div>
       </div>
     </Layout>
+    {showEmergencyConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+                <div className="text-center">
+                    <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirmação de Taxa Emergencial</h3>
+                    <p className="text-gray-700 mb-6">
+                        O horário agendado está entre 21h e 8h. Uma taxa emergencial de R$ {EMERGENCY_FEE.toFixed(2)} será aplicada. Deseja prosseguir com o agendamento?
+                    </p>
+                </div>
+                <div className="flex justify-center gap-4">
+                    <button onClick={() => setShowEmergencyConfirmModal(false)} className="px-6 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">Cancelar</button>
+                    <button onClick={handleEmergencyConfirm} className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Prosseguir</button>
+                </div>
+            </div>
+        </div>
+    )}
+    <GenerateContractModal 
+        isOpen={showContractConfirm}
+        onClose={() => setShowContractConfirm(false)}
+        onConfirm={handleConfirmAndGenerateContract}
+        removalData={pendingRemovalData}
+    />
+    </>
   );
 };
 

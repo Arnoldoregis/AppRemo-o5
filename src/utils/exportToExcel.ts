@@ -47,7 +47,9 @@ export const exportCremationHistoryToExcel = (batches: CremationBatch[], fileNam
   const formattedData = batches.flatMap(batch => 
     batch.items.map(item => ({
       'Lote ID': batch.id,
+      'Data Início Cremação': batch.startedAt ? format(new Date(batch.startedAt), 'dd/MM/yyyy HH:mm') : 'N/A',
       'Data Fim Cremação': batch.finishedAt ? format(new Date(batch.finishedAt), 'dd/MM/yyyy HH:mm') : 'Em andamento',
+      'Nome do Operador': batch.operatorName || 'N/A',
       'Nome do Pet': item.petName,
       'Código Remoção': item.removalCode,
       'Peso (kg)': item.weight.toFixed(2),

@@ -3,14 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useRemovals } from '../context/RemovalContext';
 import Layout from '../components/Layout';
-import { ArrowLeft, Upload, Plus, Minus, Building2, MapPin, Search } from 'lucide-react';
+import { ArrowLeft, Upload, Plus, Minus, Building2, MapPin, Search, AlertTriangle } from 'lucide-react';
 import { Additional, Removal } from '../types';
 import { priceTable, adicionaisDisponiveis } from '../data/pricing';
+import { generateRemovalCode } from '../utils/codeGenerator';
+import { formatCNPJ, formatPhone, validateCNPJ, validatePhone } from '../utils/validation';
 
 const ReceptorSolicitarRemocaoClinica: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { generateRemovalCode, addRemoval } = useRemovals();
+  const { addRemoval } = useRemovals();
 
   const [formData, setFormData] = useState({
     clinicName: '',
@@ -48,6 +50,50 @@ const ReceptorSolicitarRemocaoClinica: React.FC = () => {
   const [showContrato, setShowContrato] = useState(false);
   const [showPagamentoInfo, setShowPagamentoInfo] = useState(false);
   const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [baseCausaMorte, setBaseCausaMorte] = useState('');
+  const [doencas, setDoencas] = useState<string[]>([]);
+  const [isContagious, setIsContagious] = useState(false);
+  const [showContagiousWarning, setShowContagiousWarning] = useState(false);
+
+  useEffect(() => {
+    const doencasStr = doencas.join(', ');
+    const finalCausa = [baseCausaMorte.trim(), doencasStr].filter(Boolean).join(' - ');
+    setFormData(prev => ({ ...prev, petCausaMorte: finalCausa }));
+  }, [baseCausaMorte, doencas]);
+
+  // Efeito para adicionar automaticamente a patinha quando selecionar Individual Ouro
+  useEffect(() => {
+    if (formData.modalidade === 'individual_ouro') {
+        const patinhaType = 'patinha_resina';
+        setAdicionais(prev => {
+            // Verifica se já existe
+            if (prev.some(a => a.type === patinhaType)) return prev;
+            
+            const info = adicionaisDisponiveis.find(a => a.type === patinhaType);
+            if (info) {
+                return [...prev, { type: patinhaType, quantity: 1, value: info.value }];
+            }
+            return prev;
+        });
+    }
+  }, [formData.modalidade]);
+
+  useEffect(() => {
+    const contagiousDiseases = ['Leptospirose', 'Esporotricose'];
+    const hasContagious = doencas.some(d => contagiousDiseases.includes(d));
+    setIsContagious(hasContagious);
+
+    if (hasContagious) {
+        setShowContagiousWarning(true);
+        setAdicionais(prev => prev.filter(ad => !['patinha_resina', 'relicario', 'carteirinha_pelinho'].includes(ad.type)));
+        
+        if (formData.modalidade === 'individual_ouro') {
+            setFormData(prev => ({ ...prev, modalidade: 'individual_prata' }));
+        }
+    } else {
+        setShowContagiousWarning(false);
+    }
+  }, [doencas, formData.modalidade]);
 
   const paymentOptions = [
     { value: 'faturado', label: 'Faturado' },
@@ -90,7 +136,29 @@ const ReceptorSolicitarRemocaoClinica: React.FC = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    let formattedValue = value;
+
+    if (name === 'clinicCnpj') {
+        formattedValue = formatCNPJ(value);
+    } else if (name === 'clinicPhone') {
+        formattedValue = formatPhone(value);
+    } else if (name === 'petCausaMorte') {
+        setBaseCausaMorte(value);
+        return; // Don't update formData directly for this field
+    }
+
+    setFormData(prev => ({ ...prev, [name]: formattedValue }));
+  };
+
+  const handleDoencaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { value, checked } = e.target;
+    setDoencas(prev => {
+        if (checked) {
+            return [...prev, value];
+        } else {
+            return prev.filter(d => d !== value);
+        }
+    });
   };
 
   const searchCEP = async () => {
@@ -107,6 +175,9 @@ const ReceptorSolicitarRemocaoClinica: React.FC = () => {
   };
 
   const handleAdicionalChange = (type: Additional['type'], quantity: number) => {
+    if (isContagious && ['patinha_resina', 'relicario', 'carteirinha_pelinho'].includes(type)) {
+        return;
+    }
     const adicionalInfo = adicionaisDisponiveis.find(a => a.type === type);
     if (!adicionalInfo) return;
     setAdicionais(prev => {
@@ -123,11 +194,22 @@ const ReceptorSolicitarRemocaoClinica: React.FC = () => {
     e.preventDefault();
     if (!user) return;
     
+    if (!validateCNPJ(formData.clinicCnpj)) {
+        alert('CNPJ inválido');
+        return;
+    }
+    if (!validatePhone(formData.clinicPhone)) {
+        alert('Telefone inválido');
+        return;
+    }
+
     const removalCode = generateRemovalCode();
     const newRemoval: Removal = {
       code: removalCode,
       createdById: user.id,
       clinicName: formData.clinicName,
+      clinicCnpj: formData.clinicCnpj,
+      clinicPhone: formData.clinicPhone,
       modality: formData.modalidade,
       tutor: { cpfOrCnpj: formData.tutorCpfCnpj, name: formData.tutorNome, phone: formData.tutorContato, email: formData.tutorEmail },
       pet: { name: formData.petNome, species: formData.petEspecie, breed: formData.petRaca, gender: formData.petSexo, weight: formData.petPeso, causeOfDeath: formData.petCausaMorte },
@@ -172,16 +254,32 @@ const ReceptorSolicitarRemocaoClinica: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Modalidade *</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {['coletivo', 'individual_prata', 'individual_ouro'].map((m) => (
-                  <label key={m} className="relative cursor-pointer">
-                    <input type="radio" name="modalidade" value={m} checked={formData.modalidade === m} onChange={handleInputChange} className="sr-only" required />
-                    <div className={`p-4 rounded-lg border-2 text-center transition-all ${formData.modalidade === m ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <span className="font-medium">{m.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
-                    </div>
-                  </label>
-                ))}
+                {['coletivo', 'individual_prata', 'individual_ouro'].map((m) => {
+                  const isDisabled = isContagious && m === 'individual_ouro';
+                  return (
+                    <label key={m} className={`relative cursor-pointer ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                        <input type="radio" name="modalidade" value={m} checked={formData.modalidade === m} onChange={handleInputChange} className="sr-only" required disabled={isDisabled} />
+                        <div className={`p-4 rounded-lg border-2 text-center transition-all ${formData.modalidade === m ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'} ${isDisabled ? 'bg-gray-100' : ''}`}>
+                        <span className="font-medium">{m.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                        </div>
+                    </label>
+                  );
+                })}
               </div>
             </div>
+
+            {showContagiousWarning && (
+                <div className="my-6 p-4 bg-red-100 text-red-800 rounded-lg border border-red-300 flex items-start gap-3">
+                    <AlertTriangle className="h-8 w-8 flex-shrink-0 mt-1" />
+                    <div>
+                        <h4 className="font-bold text-lg">Atenção: Doença Contagiosa Detectada</h4>
+                        <p className="text-sm mt-1">
+                            Por conta da doença contagiosa, a despedida presencial (Plano Ouro) e a confecção de lembranças como Patinha, Relicário e Carteirinha com pelinho não são possíveis.
+                            {formData.modalidade === 'individual_prata' && ' O plano foi ajustado automaticamente para Individual Prata.'}
+                        </p>
+                    </div>
+                </div>
+            )}
             
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Dados do Tutor *</h3>
@@ -201,7 +299,37 @@ const ReceptorSolicitarRemocaoClinica: React.FC = () => {
                 <input name="petRaca" value={formData.petRaca} onChange={handleInputChange} placeholder="Raça" className="w-full px-3 py-2 border rounded-md" />
                 <select name="petSexo" value={formData.petSexo} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Sexo</option><option value="macho">Macho</option><option value="femea">Fêmea</option></select>
                 <select name="petPeso" value={formData.petPeso} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Peso</option><option value="0-5kg">Até 05kg</option><option value="6-10kg">06-10kg</option><option value="11-20kg">11-20kg</option><option value="21-40kg">21-40kg</option><option value="41-50kg">41-50kg</option><option value="51-60kg">51-60kg</option><option value="61-80kg">61-80kg</option></select>
-                <input name="petCausaMorte" value={formData.petCausaMorte} onChange={handleInputChange} placeholder="Causa da morte" className="w-full px-3 py-2 border rounded-md" />
+                <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Causa da morte</label>
+                    <input
+                        type="text"
+                        name="petCausaMorte"
+                        value={baseCausaMorte}
+                        onChange={handleInputChange}
+                        placeholder="Descreva a causa da morte"
+                        className="w-full px-3 py-2 border rounded-md"
+                    />
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer p-2 rounded-md hover:bg-gray-100">
+                            <input
+                                type="checkbox"
+                                value="Leptospirose"
+                                onChange={handleDoencaChange}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            Leptospirose
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer p-2 rounded-md hover:bg-gray-100">
+                            <input
+                                type="checkbox"
+                                value="Esporotricose"
+                                onChange={handleDoencaChange}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            Esporotricose
+                        </label>
+                    </div>
+                </div>
               </div>
             </div>
 
@@ -222,16 +350,22 @@ const ReceptorSolicitarRemocaoClinica: React.FC = () => {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Adicionais</h3>
               <div className="space-y-4">
-                {adicionaisDisponiveis.map((ad) => (
-                  <div key={ad.type} className={`flex items-center justify-between p-4 border rounded-lg ${isPatinhaInclusa && ad.type === 'patinha_resina' ? 'bg-gray-50 border-green-200' : 'border-gray-200'}`}>
-                    <div><span className="font-medium">{ad.label}</span><span className="text-green-600 ml-2">R$ {ad.value},00</span>{isPatinhaInclusa && ad.type === 'patinha_resina' && (<span className="ml-3 text-xs font-bold text-white bg-green-500 px-2 py-0.5 rounded-full">1ª Grátis</span>)}</div>
-                    <div className="flex items-center space-x-3">
-                      <button type="button" onClick={() => handleAdicionalChange(ad.type, Math.max(0, getAdicionalQuantity(ad.type) - 1))} className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200"><Minus className="h-4 w-4" /></button>
-                      <span className="w-8 text-center">{getAdicionalQuantity(ad.type)}</span>
-                      <button type="button" onClick={() => handleAdicionalChange(ad.type, Math.min(15, getAdicionalQuantity(ad.type) + 1))} className="p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200"><Plus className="h-4 w-4" /></button>
+                {adicionaisDisponiveis.map((ad) => {
+                  const isForbidden = isContagious && ['patinha_resina', 'relicario', 'carteirinha_pelinho'].includes(ad.type);
+                  return (
+                    <div key={ad.type} className={`flex items-center justify-between p-4 border rounded-lg ${
+                        isForbidden ? 'bg-gray-100 opacity-50' : 
+                        (isPatinhaInclusa && ad.type === 'patinha_resina' ? 'bg-gray-50 border-green-200' : 'border-gray-200')
+                    }`}>
+                        <div><span className="font-medium">{ad.label}</span><span className="text-green-600 ml-2">R$ {ad.value},00</span>{isPatinhaInclusa && ad.type === 'patinha_resina' && (<span className="ml-3 text-xs font-bold text-white bg-green-500 px-2 py-0.5 rounded-full">1ª Grátis</span>)}</div>
+                        <div className="flex items-center space-x-3">
+                        <button type="button" onClick={() => handleAdicionalChange(ad.type, Math.max(0, getAdicionalQuantity(ad.type) - 1))} disabled={isForbidden} className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 disabled:bg-gray-200 disabled:cursor-not-allowed"><Minus className="h-4 w-4" /></button>
+                        <span className="w-8 text-center">{getAdicionalQuantity(ad.type)}</span>
+                        <button type="button" onClick={() => handleAdicionalChange(ad.type, Math.min(15, getAdicionalQuantity(ad.type) + 1))} disabled={isForbidden} className="p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 disabled:bg-gray-200 disabled:cursor-not-allowed"><Plus className="h-4 w-4" /></button>
+                        </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             

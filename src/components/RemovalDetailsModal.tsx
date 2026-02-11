@@ -11,15 +11,16 @@ import ClinicaActions from './actions/ClinicaActions';
 import OperacionalActions from './actions/OperacionalActions';
 import AguardandoRetiradaActions from './actions/AguardandoRetiradaActions';
 import ReceptorVendaActions from './actions/ReceptorVendaActions';
-import CremadorActions from './actions/CremadorActions'; // Importação nova
-import { X, User, Dog, MapPin, DollarSign, FileText, Calendar, Clock, History, Info, MessageSquare, Download, Map, AlertCircle, CheckCircle, Edit, ThumbsUp, Flame, Building, Truck, AlertTriangle, Package } from 'lucide-react';
+import CremadorActions from './actions/CremadorActions';
+import RepresentanteActions from './actions/RepresentanteActions';
+import { X, User, Dog, MapPin, DollarSign, FileText, Calendar, Clock, History, Info, MessageSquare, Download, Map, CheckCircle, Edit, Flame, Building, Truck, AlertTriangle, Package, FileCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { downloadFile } from '../utils/downloadFile';
 import SetRemovalCode from './shared/SetRemovalCode';
 import { getRegionFromAddress, getSpeciesType, getBillingType } from '../utils/pricingUtils';
 import { generateContractPdf } from '../utils/generateContractPdf';
 import { adicionaisDisponiveis } from '../data/pricing';
-import AssembleBagModal from './modals/AssembleBagModal'; // Importação nova
+import AssembleBagModal from './modals/AssembleBagModal';
 
 interface RemovalDetailsModalProps {
   removal: Removal | null;
@@ -57,7 +58,7 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
   const { priceTable } = usePricing();
   const [isEditing, setIsEditing] = useState(false);
   const [activeEditTab, setActiveEditTab] = useState<'add' | 'adjust' | 'change_modality' | 'cremation'>('add');
-  const [isAssembleBagModalOpen, setIsAssembleBagModalOpen] = useState(false); // Estado para o modal de sacola
+  const [isAssembleBagModalOpen, setIsAssembleBagModalOpen] = useState(false);
 
   const getWeightKeyFromRealWeight = (weight: number): keyof typeof priceTable | null => {
     if (weight <= 5) return '0-5kg';
@@ -68,13 +69,6 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
     if (weight <= 60) return '51-60kg';
     if (weight <= 80) return '61-80kg';
     return null;
-  };
-
-  // Helper para formatar data sem problemas de timezone
-  const formatCremationDate = (dateString: string | undefined) => {
-    if (!dateString) return 'Não definida';
-    const [year, month, day] = dateString.split('-');
-    return `${day}/${month}/${year}`;
   };
 
   const financialBreakdown = useMemo(() => {
@@ -126,19 +120,16 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
     if (!removal) return [];
     const items: string[] = [];
 
-    // 1. Itens inclusos no plano
     if (removal.modality === 'individual_ouro') {
         items.push('Patinha (Incluso no Plano Ouro)');
     }
 
-    // 2. Adicionais iniciais (da solicitação)
     removal.additionals?.forEach(ad => {
         const found = adicionaisDisponiveis.find(a => a.type === ad.type);
         const label = found ? found.label : ad.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         items.push(`${ad.quantity}x ${label}`);
     });
 
-    // 3. Adicionais customizados (vendas posteriores)
     removal.customAdditionals?.forEach(ad => {
         items.push(`${ad.name}`);
     });
@@ -176,7 +167,7 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
     if (isReadOnly) return null;
 
     if (!removal.code && !canSetCode) return null;
-    if (!removal.code && canSetCode) return null; // Only show SetRemovalCode component
+    if (!removal.code && canSetCode) return null; 
 
     if (removal.status === 'aguardando_retirada' && (roleToRender === 'receptor' || roleToRender === 'financeiro_junior')) {
       return <AguardandoRetiradaActions removal={removal} onClose={() => onClose()} />;
@@ -200,10 +191,11 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
         }
         return <ReceptorActions removal={removal} onClose={() => onClose()} />;
       case 'motorista':
-        return <MotoristaActions removal={removal} onClose={onClose} />;
+        // Adding key to force re-render when removal changes, resetting internal state like 'showNextActionModal'
+        return <MotoristaActions key={removal.id} removal={removal} onClose={onClose} />;
       case 'operacional':
         return <OperacionalActions removal={removal} onClose={() => onClose()} />;
-      case 'cremador': // Adicionado caso para Cremador
+      case 'cremador':
         return <CremadorActions removal={removal} onOpenAssembleBag={() => setIsAssembleBagModalOpen(true)} />;
       case 'financeiro_junior':
         return <FinanceiroJuniorActions 
@@ -220,6 +212,8 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
           return <FinanceiroMasterActions removal={removal} onClose={() => onClose()} />;
         }
         return null;
+      case 'representante':
+        return <RepresentanteActions removal={removal} onClose={() => onClose()} />;
       default:
         return null;
     }
@@ -426,7 +420,6 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
           )}
 
           <DetailSection title="Financeiro" icon={DollarSign}>
-            {/* ... (Conteúdo financeiro mantido igual) ... */}
             <DetailItem label="Forma de Pagamento" value={removal.paymentMethod.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} />
             <p className="font-bold mt-4">Valor Total: R$ {removal.value.toFixed(2)}</p>
           </DetailSection>
@@ -437,7 +430,62 @@ const RemovalDetailsModal: React.FC<RemovalDetailsModalProps> = ({ removal, onCl
             <DetailItem label="Observações para o Certificado" value={removal.certificateObservations} />
           </DetailSection>
 
-          {/* ... (Outras seções mantidas) ... */}
+          {(['aguardando_retirada', 'entrega_agendada'].includes(removal.status) || 
+            ((removal.status === 'finalizada' || removal.status === 'aguardando_baixa_master') && (removal.actualDeliveryDate || removal.deliveredTo))) && (
+            <DetailSection title="Entrega / Retirada" icon={Truck}>
+                {removal.status === 'aguardando_retirada' && (
+                    <p className="font-semibold text-orange-600">O tutor virá buscar na unidade.</p>
+                )}
+                {removal.status === 'entrega_agendada' && removal.scheduledDeliveryDate && (
+                    <>
+                        <p className="font-semibold text-cyan-600">
+                            Entrega agendada para: {format(new Date(removal.scheduledDeliveryDate + 'T00:00:00'), 'dd/MM/yyyy')}
+                        </p>
+                        <DetailItem 
+                            label="Endereço de Entrega" 
+                            value={
+                                `${(removal.deliveryAddress || removal.removalAddress).street}, ${(removal.deliveryAddress || removal.removalAddress).number} - ${(removal.deliveryAddress || removal.removalAddress).neighborhood}, ${(removal.deliveryAddress || removal.removalAddress).city}`
+                            } 
+                        />
+                    </>
+                )}
+
+                {(removal.status === 'finalizada' || removal.status === 'aguardando_baixa_master') && (
+                    <div className="bg-green-50 p-3 rounded-md border border-green-200 mt-2">
+                        <h4 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
+                            <CheckCircle size={16} />
+                            Concluído
+                        </h4>
+                        {removal.actualDeliveryDate && (
+                            <DetailItem label="Data" value={format(new Date(removal.actualDeliveryDate + 'T00:00:00'), 'dd/MM/yyyy')} />
+                        )}
+                        <DetailItem label="Quem Retirou/Recebeu" value={removal.deliveredTo} />
+                        <DetailItem label="Quem Entregou/Liberou" value={removal.deliveryPerson} />
+                    </div>
+                )}
+            </DetailSection>
+          )}
+
+          {removal.signedContractUrl && (
+            <DetailSection title="Contrato Assinado" icon={FileCheck}>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-green-600 font-medium flex items-center">
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Contrato Arquivado
+                    </span>
+                    <button
+                        onClick={() => {
+                            const parts = removal.signedContractUrl!.split('||');
+                            downloadFile(parts[0], parts[1] || 'contrato_assinado.pdf');
+                        }}
+                        className="text-blue-600 hover:text-blue-800 text-sm underline flex items-center"
+                    >
+                        <Download className="h-3 w-3 mr-1" />
+                        Baixar Arquivo
+                    </button>
+                </div>
+            </DetailSection>
+          )}
           
           <DetailSection title="Histórico de Alterações" icon={History}>
             <ul className="space-y-2 max-h-60 overflow-y-auto pr-2">

@@ -32,7 +32,12 @@ const AwaitingPickupList: React.FC<AwaitingPickupListProps> = ({
 
     const getRelevantDate = (removal: Removal): string => {
         if (isFinalizedList) {
-            // Procura por ações de finalização de entrega ou retirada
+            // Se tiver data real de entrega/retirada salva, usa ela
+            if (removal.actualDeliveryDate) {
+                return format(new Date(removal.actualDeliveryDate + 'T00:00:00'), "dd/MM/yyyy", { locale: ptBR });
+            }
+
+            // Fallback: Procura por ações de finalização de entrega ou retirada no histórico
             const historyEntry = [...removal.history].reverse().find(h => 
                 h.action.includes('finalizada por') || 
                 h.action.includes('Entrega finalizada') ||
@@ -60,7 +65,7 @@ const AwaitingPickupList: React.FC<AwaitingPickupListProps> = ({
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pet / Tutor</th>
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Contato</th>
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Produtos</th>
-                            {!isFinalizedList && <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Ações</th>}
+                            <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Ações</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -82,25 +87,23 @@ const AwaitingPickupList: React.FC<AwaitingPickupListProps> = ({
                                         <span className="text-gray-400">N/A</span>
                                     )}
                                 </td>
-                                {!isFinalizedList && (
-                                    <td className="px-4 py-3 text-center">
-                                        <div className="flex items-center justify-center gap-3">
-                                            {onConfirmPickup && (
-                                                <button onClick={() => onConfirmPickup(removal)} className="text-green-500 hover:text-green-700 p-1" title="Confirmar Retirada">
-                                                    <CheckCircle size={18} />
-                                                </button>
-                                            )}
-                                            {onReturnToStorage && (
-                                                <button onClick={() => onReturnToStorage(removal)} className="text-yellow-500 hover:text-yellow-700 p-1" title="Retornar para 'Pronto para Entrega'">
-                                                    <Undo size={18} />
-                                                </button>
-                                            )}
-                                            <button onClick={() => onSelectRemoval(removal)} className="text-blue-600 hover:text-blue-800 p-1 rounded-full hover:bg-blue-100" title="Ver detalhes">
-                                                <Eye size={18} />
+                                <td className="px-4 py-3 text-center">
+                                    <div className="flex items-center justify-center gap-3">
+                                        {!isFinalizedList && onConfirmPickup && (
+                                            <button onClick={() => onConfirmPickup(removal)} className="text-green-500 hover:text-green-700 p-1" title="Confirmar Retirada">
+                                                <CheckCircle size={18} />
                                             </button>
-                                        </div>
-                                    </td>
-                                )}
+                                        )}
+                                        {!isFinalizedList && onReturnToStorage && (
+                                            <button onClick={() => onReturnToStorage(removal)} className="text-yellow-500 hover:text-yellow-700 p-1" title="Retornar para 'Pronto para Entrega'">
+                                                <Undo size={18} />
+                                            </button>
+                                        )}
+                                        <button onClick={() => onSelectRemoval(removal)} className="text-blue-600 hover:text-blue-800 p-1 rounded-full hover:bg-blue-100" title="Ver detalhes">
+                                            <Eye size={18} />
+                                        </button>
+                                    </div>
+                                </td>
                             </tr>
                         ))}
                     </tbody>

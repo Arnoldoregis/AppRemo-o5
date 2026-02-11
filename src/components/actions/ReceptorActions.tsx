@@ -7,6 +7,7 @@ import { mockDrivers } from '../../data/mock';
 import { geocodeAddress, calculateDistance } from '../../utils/geoUtils';
 import CertificateModal from '../modals/CertificateModal';
 import CremationDataModal from '../modals/CremationDataModal';
+import EditCertificateInfoModal from '../modals/EditCertificateInfoModal';
 
 interface ReceptorActionsProps {
   removal: Removal;
@@ -32,6 +33,8 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
   // Estados para Pronto para Entrega (Gerar Certificado / Finalizar)
   const [isCertificateModalOpen, setIsCertificateModalOpen] = useState(false);
   const [isCremationDataModalOpen, setIsCremationDataModalOpen] = useState(false);
+  const [isEditCertInfoModalOpen, setIsEditCertInfoModalOpen] = useState(false);
+  const [tempRemovalForCert, setTempRemovalForCert] = useState<Removal | null>(null);
   const [isConfirmingDeliveryFinalization, setIsConfirmingDeliveryFinalization] = useState(false);
 
   useEffect(() => {
@@ -251,11 +254,13 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
   };
 
   const handleGenerateCertificate = () => {
-    if (!removal.cremationDate || !removal.cremationCompany) {
+    // Sempre abre o modal de edição de dados primeiro
+    if (!removal.cremationCompany) {
+      alert('Por favor, defina a empresa de cremação (PETCÈU ou SQP) antes de gerar o certificado.');
       setIsCremationDataModalOpen(true);
-    } else {
-      setIsCertificateModalOpen(true);
+      return;
     }
+    setIsEditCertInfoModalOpen(true);
   };
 
   const handleConfirmCremationData = (data: { date: string; company: 'PETCÈU' | 'SQP' }) => {
@@ -291,8 +296,31 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
     
     setIsCremationDataModalOpen(false);
     setTimeout(() => {
-        setIsCertificateModalOpen(true);
+        setIsEditCertInfoModalOpen(true);
     }, 100);
+  };
+
+  const handleCertInfoConfirmed = (data: { tutorName: string; petName: string; cremationDate: string }) => {
+      const updatedRemoval = { 
+          ...removal, 
+          tutor: { ...removal.tutor, name: data.tutorName }, 
+          pet: { ...removal.pet, name: data.petName }, 
+          cremationDate: data.cremationDate 
+      };
+      
+      // Update removal if data changed
+      if (data.tutorName !== removal.tutor.name || data.petName !== removal.pet.name || data.cremationDate !== removal.cremationDate) {
+          updateRemoval(removal.id, {
+              tutor: updatedRemoval.tutor,
+              pet: updatedRemoval.pet,
+              cremationDate: updatedRemoval.cremationDate
+          });
+      }
+      
+      setTempRemovalForCert(updatedRemoval);
+      setIsEditCertInfoModalOpen(false);
+      // Only open certificate preview AFTER confirming data
+      setIsCertificateModalOpen(true);
   };
 
   const handleFinalizeDeliveryForMaster = () => {
@@ -357,10 +385,16 @@ const ReceptorActions: React.FC<ReceptorActionsProps> = ({ removal, onClose }) =
                 onConfirm={handleConfirmCremationData}
                 removal={removal}
             />
+            <EditCertificateInfoModal
+                isOpen={isEditCertInfoModalOpen}
+                onClose={() => setIsEditCertInfoModalOpen(false)}
+                onConfirm={handleCertInfoConfirmed}
+                removal={removal}
+            />
             <CertificateModal
                 isOpen={isCertificateModalOpen}
                 onClose={() => setIsCertificateModalOpen(false)}
-                removal={removal}
+                removal={tempRemovalForCert || removal}
             />
         </>
     );

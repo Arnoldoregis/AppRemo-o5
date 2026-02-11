@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Removal, RemovalStatus, CremationBatch, CremationBatchItem } from '../types';
-import { generateMockRemovals } from '../data/mock';
+import { generateMockRemovals, generateMockCremationBatches } from '../data/mock';
 import { differenceInMinutes, parse, isBefore } from 'date-fns';
 import { useNotifications } from './NotificationContext';
 import { v4 as uuidv4 } from 'uuid';
@@ -47,6 +47,9 @@ export const RemovalProvider: React.FC<RemovalProviderProps> = ({ children }) =>
         id: r.id || uuidv4(),
     }));
     setRemovals(mockDataWithIds);
+    
+    // Initialize mock batches
+    setCremationBatches(generateMockCremationBatches());
   }, []);
 
   // Efeito para verificar agendamentos
@@ -257,7 +260,7 @@ export const RemovalProvider: React.FC<RemovalProviderProps> = ({ children }) =>
       prev.map(batch => {
         if (batch.id === batchId) {
             removalCodesToUpdate = batch.items.map(item => item.removalCode);
-            return { ...batch, startedAt: new Date().toISOString() };
+            return { ...batch, startedAt: new Date().toISOString(), operatorName: operatorName };
         }
         return batch;
       })

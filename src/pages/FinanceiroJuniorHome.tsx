@@ -19,6 +19,7 @@ import CertificateModal from '../components/modals/CertificateModal';
 import CremationDataModal from '../components/modals/CremationDataModal';
 import DeductStockModal from '../components/modals/DeductStockModal';
 import ConfirmPickupModal from '../components/modals/ConfirmPickupModal';
+import EditCertificateInfoModal from '../components/modals/EditCertificateInfoModal';
 
 interface FinanceiroJuniorHomeProps {
   isReadOnly?: boolean;
@@ -42,7 +43,9 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
   // Estados para geração de certificado via card
   const [isCertificateModalOpen, setIsCertificateModalOpen] = useState(false);
   const [isCremationDataModalOpen, setIsCremationDataModalOpen] = useState(false);
+  const [isEditCertInfoModalOpen, setIsEditCertInfoModalOpen] = useState(false);
   const [removalForCertificate, setRemovalForCertificate] = useState<Removal | null>(null);
+  const [tempRemovalForCert, setTempRemovalForCert] = useState<Removal | null>(null);
 
   // Estado para confirmar retirada
   const [confirmingPickupRemoval, setConfirmingPickupRemoval] = useState<Removal | null>(null);
@@ -156,6 +159,8 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     updateRemoval(removalToUpdate.id, {
         status: nextStatus,
         deliveryPerson: data.deliveryPerson,
+        deliveredTo: data.receivedBy,
+        actualDeliveryDate: data.deliveryDate,
         deliveryStatus: 'delivered',
         history: [
             ...removalToUpdate.history,
@@ -185,6 +190,9 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     updateRemoval(confirmingPickupRemoval.id, {
       status: nextStatus,
       deliveryStatus: 'delivered',
+      deliveryPerson: user.name, // Quem confirmou/entregou na unidade
+      deliveredTo: data.pickedUpBy, // Quem retirou
+      actualDeliveryDate: data.pickupDate,
       history: [
         ...confirmingPickupRemoval.history,
         {
@@ -203,7 +211,7 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     if (!removal.cremationDate || !removal.cremationCompany) {
         setIsCremationDataModalOpen(true);
     } else {
-        setIsCertificateModalOpen(true);
+        setIsEditCertInfoModalOpen(true);
     }
   };
 
@@ -238,14 +246,38 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
         ],
         });
         
-        // Atualiza o estado local para refletir imediatamente no modal de certificado
+        // Atualiza o estado local
         setRemovalForCertificate(prev => prev ? ({ ...prev, ...updates }) : null);
     }
     
     setIsCremationDataModalOpen(false);
     setTimeout(() => {
-        setIsCertificateModalOpen(true);
+        setIsEditCertInfoModalOpen(true);
     }, 100);
+  };
+
+  const handleCertInfoConfirmed = (data: { tutorName: string; petName: string; cremationDate: string }) => {
+      if (!removalForCertificate) return;
+
+      const updatedRemoval = { 
+          ...removalForCertificate, 
+          tutor: { ...removalForCertificate.tutor, name: data.tutorName }, 
+          pet: { ...removalForCertificate.pet, name: data.petName }, 
+          cremationDate: data.cremationDate 
+      };
+      
+      // Update removal if data changed
+      if (data.tutorName !== removalForCertificate.tutor.name || data.petName !== removalForCertificate.pet.name || data.cremationDate !== removalForCertificate.cremationDate) {
+          updateRemoval(removalForCertificate.id, {
+              tutor: updatedRemoval.tutor,
+              pet: updatedRemoval.pet,
+              cremationDate: updatedRemoval.cremationDate
+          });
+      }
+      
+      setTempRemovalForCert(updatedRemoval);
+      setIsEditCertInfoModalOpen(false);
+      setIsCertificateModalOpen(true);
   };
 
   const handleCertificateDownload = () => {
@@ -359,6 +391,11 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
     }
 
     const getFinalizationDate = (removal: Removal): Date | null => {
+        // Se tiver data real salva, usa ela
+        if (removal.actualDeliveryDate) {
+            return new Date(removal.actualDeliveryDate);
+        }
+        
         const finalizationEntry = [...removal.history].reverse().find(h => 
             h.action.includes('Entrega finalizada') || 
             h.action.includes('finalizou a entrega') ||
@@ -436,21 +473,7 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
             />
         );
       case 'entregue_retirado':
-        if (!deliveredOrPickedUpGroupedByMonth || deliveredOrPickedUpGroupedByMonth.length === 0) {
-            return <p className="text-center text-gray-500 py-12">Nenhuma entrega ou retirada concluída encontrada.</p>;
-        }
-        return (
-            <div className="space-y-6">
-                {deliveredOrPickedUpGroupedByMonth.map(([month, monthRemovals]) => (
-                    <MonthlyBatchCard
-                        key={month}
-                        month={month}
-                        removals={monthRemovals}
-                        onSelectRemoval={setSelectedRemoval}
-                    />
-                ))}
-            </div>
-        );
+        return <AwaitingPickupList removals={filteredRemovals} onSelectRemoval={setSelectedRemoval} title="Entregues/Retirados (Histórico Completo)" isFinalizedList />;
       case 'todos':
         return (
           <div className="space-y-8">
@@ -586,6 +609,7 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
               {filteredRemovals.map(removal => (
                 <div key={removal.code} className="flex flex-col">
                     <RemovalCard removal={removal} onClick={() => setSelectedRemoval(removal)} />
+                    {/* Botão de Gerar Certificado para Coletivos na aba "Gerar Certificados" */}
                     {activeTab === 'gerar_certificados' && !removal.certificateGenerated && (
                         <button
                             onClick={(e) => handleQuickCertificate(e, removal)}
@@ -600,6 +624,17 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
                             <CheckCircle size={16} />
                             Certificado Gerado
                         </div>
+                    )}
+                    
+                    {/* Botão de Gerar Certificado para Individuais na aba "Pronto p/ Entrega" */}
+                    {activeTab === 'pronto_para_entrega' && removal.modality.includes('individual') && !removal.certificateGenerated && (
+                        <button
+                            onClick={(e) => handleQuickCertificate(e, removal)}
+                            className="mt-2 w-full py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center justify-center gap-2 font-medium shadow-sm transition-colors"
+                        >
+                            <Award size={16} />
+                            Gerar Certificado
+                        </button>
                     )}
                 </div>
               ))}
@@ -622,10 +657,16 @@ const FinanceiroJuniorHome: React.FC<FinanceiroJuniorHomeProps> = ({ isReadOnly 
                 onConfirm={handleConfirmCremationData}
                 removal={removalForCertificate}
             />
+            <EditCertificateInfoModal
+                isOpen={isEditCertInfoModalOpen}
+                onClose={() => setIsEditCertInfoModalOpen(false)}
+                onConfirm={handleCertInfoConfirmed}
+                removal={removalForCertificate}
+            />
             <CertificateModal
                 isOpen={isCertificateModalOpen}
                 onClose={() => setIsCertificateModalOpen(false)}
-                removal={removalForCertificate}
+                removal={tempRemovalForCert || removalForCertificate}
                 onDownload={handleCertificateDownload}
             />
         </>

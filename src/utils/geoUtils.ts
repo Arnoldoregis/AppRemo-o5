@@ -1,5 +1,8 @@
 import { Address } from '../types';
 
+// Simple in-memory cache to store geocoding results
+const addressCache = new Map<string, { lat: number; lon: number } | null>();
+
 export async function geocodeAddress(address: Address): Promise<{ lat: number; lon: number } | null> {
     const { street, number, city, state } = address;
     if (!street || !city || !state) {
@@ -7,6 +10,12 @@ export async function geocodeAddress(address: Address): Promise<{ lat: number; l
         return null;
     }
     const addressString = `${street}, ${number || ''}, ${city}, ${state}`;
+
+    // Check cache first
+    if (addressCache.has(addressString)) {
+        return addressCache.get(addressString) || null;
+    }
+
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressString)}`;
 
     try {
@@ -17,12 +26,17 @@ export async function geocodeAddress(address: Address): Promise<{ lat: number; l
         }
         const data = await response.json();
         if (data && data.length > 0) {
-            return {
+            const result = {
                 lat: parseFloat(data[0].lat),
                 lon: parseFloat(data[0].lon),
             };
+            // Save to cache
+            addressCache.set(addressString, result);
+            return result;
         } else {
             console.warn("Nenhum resultado de geocodificação para:", addressString);
+            // Cache null result to avoid refetching invalid addresses
+            addressCache.set(addressString, null);
             return null;
         }
     } catch (error) {

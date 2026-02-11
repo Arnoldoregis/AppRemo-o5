@@ -89,6 +89,23 @@ const ReceptorSolicitarRemocaoPage: React.FC = () => {
         setFormData(prev => ({ ...prev, petCausaMorte: finalCausa }));
     }, [baseCausaMorte, doencas]);
 
+    // Efeito para adicionar automaticamente a patinha quando selecionar Individual Ouro
+    useEffect(() => {
+        if (formData.modalidade === 'individual_ouro') {
+            const patinhaType = 'patinha_resina';
+            setAdicionais(prev => {
+                // Verifica se já existe
+                if (prev.some(a => a.type === patinhaType)) return prev;
+                
+                const info = adicionaisDisponiveis.find(a => a.type === patinhaType);
+                if (info) {
+                    return [...prev, { type: patinhaType, quantity: 1, value: info.value }];
+                }
+                return prev;
+            });
+        }
+    }, [formData.modalidade]);
+
     useEffect(() => {
         const contagiousDiseases = ['Leptospirose', 'Esporotricose'];
         const hasContagious = doencas.some(d => contagiousDiseases.includes(d));
@@ -197,9 +214,13 @@ const ReceptorSolicitarRemocaoPage: React.FC = () => {
     }, [formData.modalidade, formData.petEspecie, formData.petPeso, formData.formaPagamento, adicionais, priceTable, formData.enderecoCep, formData.enderecoCidade, formData.enderecoEstado, isEmergencyHours]);
 
     useEffect(() => {
-        setShowUpload(formData.formaPagamento === 'pix' || formData.formaPagamento === 'link_pagamento');
-        setShowContrato(formData.formaPagamento === 'plano_preventivo');
-        setShowPagamentoInfo(['credito', 'debito', 'dinheiro'].includes(formData.formaPagamento));
+        const needsUpload = formData.formaPagamento === 'pix' || formData.formaPagamento === 'link_pagamento';
+        const needsContrato = formData.formaPagamento === 'plano_preventivo';
+        const needsInfo = ['credito', 'debito', 'dinheiro'].includes(formData.formaPagamento);
+        
+        setShowUpload(needsUpload);
+        setShowContrato(needsContrato);
+        setShowPagamentoInfo(needsInfo);
     }, [formData.formaPagamento]);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -322,7 +343,7 @@ const ReceptorSolicitarRemocaoPage: React.FC = () => {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!validateForm()) {
-            alert('Por favor, corrija os campos com erro antes de continuar.');
+            alert('Por favor, corrija os campos inválidos.');
             return;
         }
         if (!user) return;
@@ -453,7 +474,7 @@ const ReceptorSolicitarRemocaoPage: React.FC = () => {
                     <select name="petEspecie" value={formData.petEspecie} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Espécie</option><option value="cachorro">Cachorro</option><option value="gato">Gato</option><option value="roedor">Roedor</option><option value="passaro">Pássaro</option><option value="outros">Outros</option></select>
                     <input name="petRaca" value={formData.petRaca} onChange={handleInputChange} placeholder="Raça" className="w-full px-3 py-2 border rounded-md" />
                     <select name="petSexo" value={formData.petSexo} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Sexo</option><option value="macho">Macho</option><option value="femea">Fêmea</option></select>
-                    <select name="petPeso" value={formData.petPeso} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Peso</option><option value="0-5kg">Até 05kg</option><option value="6-10kg">06-10kg</option><option value="11-20kg">11-20kg</option><option value="21-40kg">21-40kg</option><option value="41-50kg">41-50kg</option><option value="51-60kg">51-60kg</option><option value="61-80kg">61-80kg</option></select>
+                    <select name="petPeso" value={formData.petPeso} onChange={handleInputChange} required className="w-full px-3 py-2 border rounded-md"><option value="">Peso</option><option value="0-5kg">Até 05kg</option><option value="6-10kg">De 06kg a 10kg</option><option value="11-20kg">De 11kg a 20kg</option><option value="21-40kg">De 21kg a 40kg</option><option value="41-50kg">De 41kg a 50kg</option><option value="51-60kg">De 51kg a 60kg</option><option value="61-80kg">De 61kg a 80kg</option></select>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-2">Causa da morte</label>
                         <input
@@ -515,7 +536,9 @@ const ReceptorSolicitarRemocaoPage: React.FC = () => {
                             <div><span className="font-medium">{ad.label}</span><span className="text-green-600 ml-2">R$ {ad.value},00</span>{isPatinhaInclusa && ad.type === 'patinha_resina' && (<span className="ml-3 text-xs font-bold text-white bg-green-500 px-2 py-0.5 rounded-full">1ª Grátis</span>)}</div>
                             <div className="flex items-center space-x-3">
                             <button type="button" onClick={() => handleAdicionalChange(ad.type, Math.max(0, getAdicionalQuantity(ad.type) - 1))} disabled={isForbidden} className="p-1 rounded-full bg-red-100 text-red-600 hover:bg-red-200 disabled:bg-gray-200 disabled:cursor-not-allowed"><Minus className="h-4 w-4" /></button>
-                            <span className="w-8 text-center">{getAdicionalQuantity(ad.type)}</span>
+                            <span className="w-8 text-center font-medium">
+                                {getAdicionalQuantity(ad.type)}
+                            </span>
                             <button type="button" onClick={() => handleAdicionalChange(ad.type, Math.min(15, getAdicionalQuantity(ad.type) + 1))} disabled={isForbidden} className="p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 disabled:bg-gray-200 disabled:cursor-not-allowed"><Plus className="h-4 w-4" /></button>
                             </div>
                         </div>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useRemovals } from '../context/RemovalContext';
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
-import { Calendar, CalendarDays, Download, Search, Plus, Filter, UserCheck, CalendarClock, CheckCircle, Map as MapIcon, List as ListIcon, ShoppingBag, Truck, PackageMinus } from 'lucide-react';
+import { Calendar, CalendarDays, Download, Search, Plus, Filter, UserCheck, CalendarClock, CheckCircle, Map as MapIcon, List as ListIcon, ShoppingBag, Truck, PackageMinus, Clock } from 'lucide-react';
 import { Removal, RemovalStatus } from '../types';
 import RemovalCard from '../components/RemovalCard';
 import RemovalDetailsModal from '../components/RemovalDetailsModal';
@@ -17,6 +17,7 @@ import AwaitingPickupList from '../components/shared/AwaitingPickupList';
 import { format } from 'date-fns';
 import DeductStockModal from '../components/modals/DeductStockModal';
 import ConfirmPickupModal from '../components/modals/ConfirmPickupModal';
+import DailyBatchCard from '../components/cards/DailyBatchCard';
 
 interface ReceptorHomeProps {
   isReadOnly?: boolean;
@@ -32,7 +33,7 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
   const [searchTerm, setSearchTerm] = useState('');
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isScheduleDeliveryModalOpen, setIsScheduleDeliveryModalOpen] = useState(false);
-  const [deliveryFilter, setDeliveryFilter] = useState<'entrega_agendada' | 'aguardando_retirada' | 'entregue_retirado' | 'todos'>('entrega_agendada');
+  const [deliveryFilter, setDeliveryFilter] = useState<'aguardando_agenda' | 'entrega_agendada' | 'aguardando_retirada' | 'entregue_retirado' | 'todos'>('entrega_agendada');
   const [selectedDriverId, setSelectedDriverId] = useState<string>('todos');
   const [activeSubTab, setActiveSubTab] = useState<'list' | 'map'>('list');
   const [isDeductStockModalOpen, setIsDeductStockModalOpen] = useState(false);
@@ -142,6 +143,8 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
     updateRemoval(removalToUpdate.id, {
         status: nextStatus,
         deliveryPerson: data.deliveryPerson,
+        deliveredTo: data.receivedBy,
+        actualDeliveryDate: data.deliveryDate,
         deliveryStatus: 'delivered',
         history: [
             ...removalToUpdate.history,
@@ -171,6 +174,9 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
     updateRemoval(confirmingPickupRemoval.id, {
       status: nextStatus,
       deliveryStatus: 'delivered',
+      deliveryPerson: user.name, // Quem confirmou/entregou na unidade
+      deliveredTo: data.pickedUpBy, // Quem retirou
+      actualDeliveryDate: data.pickupDate,
       history: [
         ...confirmingPickupRemoval.history,
         {
@@ -211,8 +217,11 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
                 );
                 return !!finalizationEntry;
             });
+        } else if (deliveryFilter === 'aguardando_agenda') {
+            // Filtra remoções que estão prontas para entrega mas ainda não foram agendadas
+            tabFiltered = removals.filter(r => r.status === 'pronto_para_entrega');
         } else if (deliveryFilter === 'todos') {
-            tabFiltered = removals.filter(r => ['aguardando_retirada', 'entrega_agendada'].includes(r.status));
+            tabFiltered = removals.filter(r => ['pronto_para_entrega', 'aguardando_retirada', 'entrega_agendada'].includes(r.status));
         } else {
             tabFiltered = removals.filter(r => r.status === deliveryFilter);
         }
@@ -246,6 +255,35 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
     return tabFiltered;
   }, [activeTab, removals, searchTerm, deliveryFilter, selectedDriverId]);
 
+  const concludedGroupedByDay = useMemo(() => {
+    if (activeTab !== 'concluida') return null;
+
+    const grouped = filteredRemovals.reduce((acc, removal) => {
+        // Tenta encontrar a data de conclusão no histórico
+        let dateToUse = removal.createdAt;
+        const completionEntry = [...removal.history].reverse().find(h => 
+            h.action.toLowerCase().includes('finalizou a remoção') || 
+            h.action.toLowerCase().includes('pesou o pet')
+        );
+        
+        if (completionEntry) {
+            dateToUse = completionEntry.date;
+        }
+
+        const dayKey = format(new Date(dateToUse), 'yyyy-MM-dd');
+        if (!acc[dayKey]) {
+            acc[dayKey] = [];
+        }
+        acc[dayKey].push(removal);
+        return acc;
+    }, {} as { [key: string]: Removal[] });
+
+    // Ordena por data (mais recente primeiro)
+    return Object.entries(grouped).sort(([dateA], [dateB]) => {
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+    });
+  }, [activeTab, filteredRemovals]);
+
   const handleDownload = () => {
     exportToExcel(filteredRemovals, `historico_receptor_${activeTab}`);
   };
@@ -262,6 +300,7 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
   ];
 
   const deliveryFilters = [
+    { id: 'aguardando_agenda' as const, label: 'Aguardando Agenda', icon: Clock },
     { id: 'entrega_agendada' as const, label: 'Entregas Agendadas', icon: CalendarClock },
     { id: 'aguardando_retirada' as const, label: 'Aguardando Retirada', icon: UserCheck },
     { id: 'entregue_retirado' as const, label: 'Entregue/Retirado', icon: CheckCircle },
@@ -284,10 +323,43 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
         );
       case 'entregue_retirado':
         return <AwaitingPickupList removals={filteredRemovals} onSelectRemoval={setSelectedRemoval} title="Entregues/Retirados (Histórico Completo)" isFinalizedList />;
+      case 'aguardando_agenda':
+        return (
+            filteredRemovals.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredRemovals.map(removal => (
+                        <RemovalCard key={removal.id} removal={removal} onClick={() => setSelectedRemoval(removal)} />
+                    ))}
+                </div>
+            ) : (
+                <div className="text-center py-12 text-gray-500">
+                    <Clock size={48} className="mx-auto text-gray-300 mb-4" />
+                    <p>Nenhuma entrega aguardando agendamento.</p>
+                </div>
+            )
+        );
       case 'todos':
         return (
           <div className="space-y-8">
+            {/* Seção Aguardando Agenda */}
+            <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+                <h3 className="text-lg font-bold text-gray-800 p-4 bg-gray-50 border-b flex items-center gap-2">
+                    <Clock size={20} className="text-orange-600" />
+                    Aguardando Agenda
+                </h3>
+                <div className="p-4">
+                    {removals.filter(r => r.status === 'pronto_para_entrega').length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {removals.filter(r => r.status === 'pronto_para_entrega').map(removal => (
+                                <RemovalCard key={removal.id} removal={removal} onClick={() => setSelectedRemoval(removal)} />
+                            ))}
+                        </div>
+                    ) : <p className="text-center text-gray-500">Nenhuma entrega aguardando agendamento.</p>}
+                </div>
+            </div>
+
             <ScheduledDeliveryList removals={removals.filter(r => r.status === 'entrega_agendada')} onCancelDelivery={handleCancelDelivery} onMarkAsDelivered={handleMarkAsDelivered} onReturnToSchedule={handleReturnToSchedule} onViewDetails={setSelectedRemoval} />
+            
             <AwaitingPickupList 
                 removals={removals.filter(r => r.status === 'aguardando_retirada')} 
                 onSelectRemoval={setSelectedRemoval} 
@@ -452,6 +524,21 @@ const ReceptorHome: React.FC<ReceptorHomeProps> = ({ isReadOnly = false, viewedR
               </div>
               {renderAgendaContent()}
             </div>
+          ) : activeTab === 'concluida' ? (
+            concludedGroupedByDay && concludedGroupedByDay.length > 0 ? (
+                <div className="space-y-6">
+                    {concludedGroupedByDay.map(([day, dayRemovals]) => (
+                        <DailyBatchCard 
+                            key={day} 
+                            date={day} 
+                            removals={dayRemovals} 
+                            onSelectRemoval={setSelectedRemoval}
+                        />
+                    ))}
+                </div>
+            ) : (
+                <p className="text-center text-gray-500 py-12">Nenhuma remoção concluída encontrada.</p>
+            )
           ) : filteredRemovals.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredRemovals.map(removal => <RemovalCard key={removal.id} removal={removal} onClick={() => setSelectedRemoval(removal)} />)}

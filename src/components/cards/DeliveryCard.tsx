@@ -5,9 +5,10 @@ import { Truck, User, Dog, Phone, MapPin, Package, Eye, Map } from 'lucide-react
 interface DeliveryCardProps {
   delivery: Removal;
   onClick: () => void;
+  orderNumber?: number;
 }
 
-const DeliveryCard: React.FC<DeliveryCardProps> = ({ delivery, onClick }) => {
+const DeliveryCard: React.FC<DeliveryCardProps> = ({ delivery, onClick, orderNumber }) => {
   const address = delivery.deliveryAddress || delivery.removalAddress;
   const fullAddress = `${address.street}, ${address.number}, ${address.neighborhood}, ${address.city}`;
 
@@ -20,9 +21,14 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ delivery, onClick }) => {
 
   return (
     <div
-      className="bg-white rounded-lg shadow-md p-4 transition-all hover:shadow-lg cursor-pointer border-l-8 border-purple-500"
+      className="bg-white rounded-lg shadow-md p-4 transition-all hover:shadow-lg cursor-pointer border-l-8 border-purple-500 relative"
       onClick={onClick}
     >
+      {orderNumber && (
+        <div className="absolute -top-3 -left-3 bg-purple-600 text-white h-9 w-9 rounded-full flex items-center justify-center font-bold text-lg shadow-lg border-2 border-white z-10">
+          {orderNumber}
+        </div>
+      )}
       <div className="flex justify-between items-start">
         <div className="flex-grow">
           <p className="font-mono font-bold text-purple-700 text-sm bg-purple-100 px-2.5 py-1 rounded-full inline-block mb-2">
